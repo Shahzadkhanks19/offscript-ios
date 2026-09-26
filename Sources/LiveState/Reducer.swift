@@ -20,18 +20,19 @@ public enum LiveStateReducer {
 
         switch event {
         case .preparationStarted:
-            next.lifecycle = .preparing
+            if LifecyclePolicy.canTransition(from: next.lifecycle, to: .preparing) { next.lifecycle = .preparing }
             return .init(state: next, effects: [record])
 
         case .preparationCompleted:
-            next.lifecycle = .ready
+            if LifecyclePolicy.canTransition(from: next.lifecycle, to: .ready) { next.lifecycle = .ready }
             return .init(state: next, effects: [record])
 
         case .encounterStarting:
-            next.lifecycle = .starting
+            if LifecyclePolicy.canTransition(from: next.lifecycle, to: .starting) { next.lifecycle = .starting }
             return .init(state: next, effects: [record])
 
         case .encounterStarted:
+            guard LifecyclePolicy.canTransition(from: next.lifecycle, to: .active) else { return .init(state: next, effects: [record]) }
             next.lifecycle = .active
             next.conversation.turnState = .counterpartThinking
             return .init(state: next, effects: [record, .requestCounterpartAction(.askOpeningQuestion)])
@@ -133,19 +134,21 @@ public enum LiveStateReducer {
             return .init(state: next, effects: [record])
 
         case .encounterPaused:
+            guard LifecyclePolicy.canTransition(from: next.lifecycle, to: .paused) else { return .init(state: next, effects: [record]) }
             next.lifecycle = .paused; next.conversation.turnState = .paused
             return .init(state: next, effects: [record])
 
         case .encounterResumed:
+            guard LifecyclePolicy.canTransition(from: next.lifecycle, to: .active) else { return .init(state: next, effects: [record]) }
             next.lifecycle = .active; next.conversation.turnState = .idle
             return .init(state: next, effects: [record])
 
         case .encounterEnding:
-            next.lifecycle = .ending
+            if LifecyclePolicy.canTransition(from: next.lifecycle, to: .ending) { next.lifecycle = .ending }
             return .init(state: next, effects: [record])
 
         case .encounterProcessing:
-            next.lifecycle = .processing
+            if LifecyclePolicy.canTransition(from: next.lifecycle, to: .processing) { next.lifecycle = .processing }
             return .init(state: next, effects: [record])
 
         case .encounterCompleted:
