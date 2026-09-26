@@ -1067,7 +1067,8 @@ final class EncounterRuntimeTests: XCTestCase {
             XCTAssertEqual(error, .resultConflict(intentID: intent.id))
         }
 
-        XCTAssertEqual(try await journal.result(for: intent.id), first)
+        let cachedAfterConflict = try await journal.result(for: intent.id)
+        XCTAssertEqual(cachedAfterConflict, first)
     }
 
     func testResultCacheRejectsUnknownOrCompletedIntentAndCleansUpOnCompletion() async throws {
@@ -1075,7 +1076,7 @@ final class EncounterRuntimeTests: XCTestCase {
         let unknownID = UUID()
 
         do {
-            try await journal.saveResult(.surpriseCleared("unknown"), for: unknownID)
+            try await journal.saveResult(.surpriseCleared(UUID()), for: unknownID)
             XCTFail("Expected unknown-intent rejection")
         } catch let error as RuntimeJournalError {
             XCTAssertEqual(error, .resultForUnknownIntent(intentID: unknownID))
@@ -1105,10 +1106,12 @@ final class EncounterRuntimeTests: XCTestCase {
 
         try await journal.commit(event: record, intents: intents, completing: nil)
         try await journal.saveResult(result, for: intent.id)
-        XCTAssertEqual(try await journal.result(for: intent.id), result)
+        let cachedBeforeCompletion = try await journal.result(for: intent.id)
+        XCTAssertEqual(cachedBeforeCompletion, result)
 
         try await journal.markCompleted(intentID: intent.id)
-        XCTAssertNil(try await journal.result(for: intent.id))
+        let cachedAfterCompletion = try await journal.result(for: intent.id)
+        XCTAssertNil(cachedAfterCompletion)
 
         do {
             try await journal.saveResult(result, for: intent.id)
