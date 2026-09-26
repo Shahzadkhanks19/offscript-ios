@@ -99,4 +99,16 @@ public protocol RuntimeJournal: Sendable {
     ) async throws
     func pendingIntents(encounterID: UUID) async throws -> [DurableEffectIntent]
     func markCompleted(intentID: UUID) async throws
+
+    /// Optional durable result cache for result-producing external effects.
+    /// Production journals should persist this by intent ID so a crash after a
+    /// successful model call but before event commit can reuse the exact result
+    /// without calling the provider again.
+    func result(for intentID: UUID) async throws -> SimulationEvent?
+    func saveResult(_ event: SimulationEvent, for intentID: UUID) async throws
+}
+
+public extension RuntimeJournal {
+    func result(for intentID: UUID) async throws -> SimulationEvent? { nil }
+    func saveResult(_ event: SimulationEvent, for intentID: UUID) async throws {}
 }
