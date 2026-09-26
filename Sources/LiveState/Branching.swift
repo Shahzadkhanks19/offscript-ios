@@ -1,6 +1,6 @@
 import Foundation
 
-public struct Checkpoint: Identifiable, Equatable, Sendable {
+public struct Checkpoint: Identifiable, Equatable, Sendable, Codable {
     public let id: UUID
     public let parentBranchID: UUID
     public let state: EncounterState
@@ -9,7 +9,7 @@ public struct Checkpoint: Identifiable, Equatable, Sendable {
     }
 }
 
-public struct Branch: Identifiable, Equatable, Sendable {
+public struct Branch: Identifiable, Equatable, Sendable, Codable {
     public let id: UUID
     public let parentCheckpointID: UUID?
     public init(id: UUID = UUID(), parentCheckpointID: UUID? = nil) {
