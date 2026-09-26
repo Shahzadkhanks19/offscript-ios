@@ -149,15 +149,18 @@ public enum LiveStateReducer {
             return .init(state: next, effects: [record])
 
         case .encounterCompleted:
-            next.lifecycle = .completed; next.conversation.turnState = .idle
+            if LifecyclePolicy.canTransition(from: next.lifecycle, to: .completed) {
+                next.lifecycle = .completed
+                next.conversation.turnState = .idle
+            }
             return .init(state: next, effects: [record])
 
         case .reviewStarted:
-            next.lifecycle = .reviewing
+            if LifecyclePolicy.canTransition(from: next.lifecycle, to: .reviewing) { next.lifecycle = .reviewing }
             return .init(state: next, effects: [record])
 
         case .retryStarted:
-            next.lifecycle = .retrying
+            if LifecyclePolicy.canTransition(from: next.lifecycle, to: .retrying) { next.lifecycle = .retrying }
             return .init(state: next, effects: [record])
         }
     }
