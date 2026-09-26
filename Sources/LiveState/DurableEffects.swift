@@ -78,9 +78,20 @@ public enum DurableEffectPlanner {
 
 /// Persistence boundary for a transactional outbox. Production implementations
 /// must append an event and its derived durable intents atomically.
+public enum RuntimeJournalError: Error, Equatable, Sendable {
+    case eventConflict(id: UUID)
+    case sequenceConflict(encounterID: UUID, sequence: Int)
+    case intentConflict(id: UUID)
+}
+
+/// Storage contract for the transactional event journal + durable outbox.
+///
+/// Implementations MUST make commit idempotent:
+/// - replaying the exact same event/intent transaction is a no-op;
+/// - the same event ID or encounter sequence with different content conflicts;
+/// - the same intent ID with different content conflicts;
+/// - completing an already-completed intent is a no-op.
 public protocol RuntimeJournal: Sendable {
-    /// Atomically appends the event, inserts its new durable intents, and, when
-    /// supplied, completes the parent intent that produced this event.
     func commit(
         event: EventRecord,
         intents: [DurableEffectIntent],
