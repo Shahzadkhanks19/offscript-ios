@@ -110,8 +110,13 @@ public enum LiveStateReducer {
             return .init(state: next, effects: [record])
 
         case let .surpriseTriggered(surprise):
-            next.pendingSurprise = surprise
-            return .init(state: next, effects: [record, .presentSurprise(surprise)])
+            if next.pendingSurprise == nil && next.surpriseCount < next.surpriseBudget {
+                next.pendingSurprise = surprise
+                next.lastSurpriseTurn = next.user.totalTurns
+                next.surpriseCount += 1
+                return .init(state: next, effects: [record, .presentSurprise(surprise)])
+            }
+            return .init(state: next, effects: [record])
 
         case let .surpriseCleared(id):
             if next.pendingSurprise?.id == id {
