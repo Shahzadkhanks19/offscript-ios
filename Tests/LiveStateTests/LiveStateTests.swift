@@ -660,4 +660,27 @@ final class LiveStateTests: XCTestCase {
         XCTAssertEqual(decoded.kind, "guardrailActionChanged")
     }
 
+    func testGuardrailPolicyAllowsConfiguredDomainWithoutMutation() {
+        let state = GuardrailState(allowedDomains: [.interview], action: .none)
+        XCTAssertEqual(GuardrailPolicy.action(for: .interview, state: state), .none)
+        XCTAssertNil(GuardrailPolicy.event(for: .interview, state: state))
+    }
+
+    func testGuardrailPolicyRedirectsDisallowedDomainWithTypedEvent() {
+        let state = GuardrailState(allowedDomains: [.interview], action: .none)
+        XCTAssertEqual(GuardrailPolicy.action(for: .negotiation, state: state), .redirect)
+        XCTAssertEqual(
+            GuardrailPolicy.event(for: .negotiation, state: state),
+            .guardrailActionChanged(.redirect)
+        )
+    }
+
+    func testGuardrailPolicyCanClearPreviousRedirectWhenDomainBecomesAllowed() {
+        let state = GuardrailState(allowedDomains: [.interview], action: .redirect)
+        XCTAssertEqual(
+            GuardrailPolicy.event(for: .interview, state: state),
+            .guardrailActionChanged(.none)
+        )
+    }
+
 }
