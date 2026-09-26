@@ -102,7 +102,12 @@ public enum LiveStateReducer {
         case let .checkpointRestored(checkpoint):
             var restored = Branching.restore(
                 checkpoint,
-                branchID: Determinism.id(encounterID: state.id, sequence: next.sequence, domain: "branch")
+                branchID: Determinism.branchID(
+                    encounterID: state.id,
+                    parentBranchID: checkpoint.parentBranchID,
+                    checkpointID: checkpoint.id,
+                    sequence: next.sequence
+                )
             )
             restored.sequence = next.sequence
             restored.branchLineage.register(branchID: restored.activeBranchID, parentCheckpointID: checkpoint.id)
