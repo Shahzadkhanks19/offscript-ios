@@ -598,4 +598,30 @@ final class LiveStateTests: XCTestCase {
         XCTAssertFalse(LifecyclePolicy.canTransition(from: .completed, to: .recovering))
     }
 
+    func testGuardrailsOverrideOrdinaryPolicy() {
+        let evaluation = AnswerEvaluation(
+            answeredQuestion: true,
+            relevance: 1,
+            specificity: 1
+        )
+
+        var redirect = EncounterState(lifecycle: .active)
+        redirect.guardrails.action = .redirect
+        XCTAssertEqual(PolicyEngine.nextAction(for: redirect, evaluation: evaluation), .closeTopic)
+
+        var stop = EncounterState(lifecycle: .active)
+        stop.guardrails.action = .endEncounter
+        XCTAssertEqual(PolicyEngine.nextAction(for: stop, evaluation: evaluation), .endEncounter)
+    }
+
+    func testGuardrailsPersistThroughStateEncoding() throws {
+        var state = EncounterState()
+        state.guardrails = .init(allowedDomains: [.interview, .workplace], action: .redirect)
+        let decoded = try JSONDecoder().decode(
+            EncounterState.self,
+            from: JSONEncoder().encode(state)
+        )
+        XCTAssertEqual(decoded.guardrails, state.guardrails)
+    }
+
 }
