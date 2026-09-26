@@ -1,6 +1,6 @@
 import Foundation
 
-public enum SimulationEvent: Equatable, Sendable {
+public enum SimulationEvent: Equatable, Sendable, Codable {
     case encounterStarted
     case userSubmitted(String)
     case counterpartResponded(String)
@@ -24,7 +24,7 @@ public enum SimulationEffect: Equatable, Sendable {
 
 /// Persisted event envelope. Unlike the old kind-only record, this retains the
 /// complete typed event needed to reconstruct an encounter.
-public struct EventRecord: Identifiable, Equatable, Sendable {
+public struct EventRecord: Identifiable, Equatable, Sendable, Codable {
     public static let currentSchemaVersion = 1
 
     public let id: UUID
