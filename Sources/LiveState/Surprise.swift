@@ -17,9 +17,10 @@ public struct Surprise: Identifiable, Equatable, Sendable, Codable {
 public enum SurpriseEngine {
     public static func next(for state: EncounterState) -> Surprise? {
         guard state.pressure.effective >= 0.55, state.user.totalTurns >= 2 else { return nil }
-        if let unresolved = state.objectives.first(where: { $0.status != .satisfied }) {
-            let kind: SurpriseKind = unresolved.id == "tradeoffAwareness" ? .skepticalChallenge : .deeperProbe
-            return Surprise(kind: kind, targetObjectiveID: unresolved.id, reason: "Probe an unresolved encounter objective.")
+        if let last = state.lastSurpriseTurn, state.user.totalTurns - last < 2 { return nil }
+        if let objective = ObjectiveGraph.nextEligible(in: state) {
+            let kind: SurpriseKind = objective.id == "tradeoffAwareness" ? .skepticalChallenge : .deeperProbe
+            return Surprise(kind: kind, targetObjectiveID: objective.id, reason: "Probe an eligible unresolved encounter objective.")
         }
         return nil
     }
