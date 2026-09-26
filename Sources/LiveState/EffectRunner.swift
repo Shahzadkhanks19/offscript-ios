@@ -1,11 +1,20 @@
 import Foundation
 
 public protocol EvaluationService: Sendable {
-    func evaluate(turnID: UUID, text: String, context: EvaluationContext) async throws -> AnswerEvaluation
+    func evaluate(
+        turnID: UUID,
+        text: String,
+        context: EvaluationContext,
+        idempotencyKey: UUID
+    ) async throws -> AnswerEvaluation
 }
 
 public protocol CounterpartService: Sendable {
-    func respond(to action: PolicyAction, context: CounterpartContext) async throws -> String
+    func respond(
+        to action: PolicyAction,
+        context: CounterpartContext,
+        idempotencyKey: UUID
+    ) async throws -> String
 }
 
 public protocol CheckpointStore: Sendable {
@@ -43,10 +52,29 @@ public struct EffectRunner: Sendable {
         case let .evaluateAnswer(turnID, text):
             return .answerEvaluated(
                 turnID: turnID,
-                try await evaluation.evaluate(turnID: turnID, text: text, context: EvaluationContext(state: state))
+                try await evaluation.evaluate(
+                    turnID: turnID,
+                    text: text,
+                    context: EvaluationContext(state: state),
+                    idempotencyKey: Determinism.id(
+                        encounterID: state.id,
+                        sequence: state.sequence,
+                        domain: "evaluation|\(turnID.uuidString.lowercased())"
+                    )
+                )
             )
         case let .requestCounterpartAction(action):
-            return .counterpartResponded(try await counterpart.respond(to: action, context: CounterpartContext(state: state)))
+            return .counterpartResponded(
+                try await counterpart.respond(
+                    to: action,
+                    context: CounterpartContext(state: state),
+                    idempotencyKey: Determinism.id(
+                        encounterID: state.id,
+                        sequence: state.sequence,
+                        domain: "counterpart|\(String(describing: action))"
+                    )
+                )
+            )
         case let .persistCheckpoint(checkpoint):
             try await checkpoints.save(checkpoint)
             return nil
