@@ -11,6 +11,7 @@ public enum SimulationEvent: Equatable, Sendable, Codable {
     case checkpointRestored(Checkpoint)
     case pressureAdjusted(Double)
     case surpriseTriggered(Surprise)
+    case surpriseCleared(UUID)
     case observableSignalsUpdated([ObservableSignal])
     case encounterPaused
     case encounterResumed
@@ -67,6 +68,7 @@ public struct EventRecord: Identifiable, Equatable, Sendable, Codable {
         case .checkpointRestored: "checkpointRestored"
         case .pressureAdjusted: "pressureAdjusted"
         case .surpriseTriggered: "surpriseTriggered"
+        case .surpriseCleared: "surpriseCleared"
         case .observableSignalsUpdated: "observableSignalsUpdated"
         case .encounterPaused: "encounterPaused"
         case .encounterResumed: "encounterResumed"
