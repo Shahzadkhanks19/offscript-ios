@@ -18,12 +18,12 @@ public struct Branch: Identifiable, Equatable, Sendable {
 }
 
 public enum Branching {
-    public static func checkpoint(_ state: EncounterState) -> Checkpoint {
-        Checkpoint(parentBranchID: state.activeBranchID, state: state)
+    public static func checkpoint(_ state: EncounterState, id: UUID? = nil) -> Checkpoint {
+        Checkpoint(id: id ?? UUID(), parentBranchID: state.activeBranchID, state: state)
     }
-    public static func restore(_ checkpoint: Checkpoint) -> EncounterState {
+    public static func restore(_ checkpoint: Checkpoint, branchID: UUID? = nil) -> EncounterState {
         var restored = checkpoint.state
-        restored.activeBranchID = UUID()
+        restored.activeBranchID = branchID ?? UUID()
         restored.lifecycle = .active
         return restored
     }
