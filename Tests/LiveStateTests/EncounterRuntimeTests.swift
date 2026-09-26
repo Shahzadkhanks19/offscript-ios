@@ -43,6 +43,7 @@ private actor MemoryEventStore: EventStore {
 
 private enum TestStoreError: Error {
     case persistenceFailed
+    case serviceFailed
 }
 
 private actor FailingEventStore: EventStore {
@@ -70,7 +71,7 @@ private actor FailOnceEvaluationService: EvaluationService {
     ) async throws -> AnswerEvaluation {
         if shouldFail {
             shouldFail = false
-            throw TestStoreError.persistenceFailed
+            throw TestStoreError.serviceFailed
         }
         return result
     }
