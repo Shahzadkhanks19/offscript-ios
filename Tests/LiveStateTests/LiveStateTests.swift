@@ -385,4 +385,53 @@ final class LiveStateTests: XCTestCase {
         ])
     }
 
+    func testSurpriseBudgetAndLifecyclePreventChallengeSpam() {
+        let firstID = UUID(uuidString: "99999999-9999-9999-9999-999999999991")!
+        let secondID = UUID(uuidString: "99999999-9999-9999-9999-999999999992")!
+        let first = Surprise(id: firstID, kind: .deeperProbe, targetObjectiveID: "architectureReasoning", reason: "First")
+        let second = Surprise(id: secondID, kind: .skepticalChallenge, targetObjectiveID: "tradeoffAwareness", reason: "Second")
+
+        var state = EncounterState(lifecycle: .active, surpriseBudget: 1)
+        state = LiveStateReducer.reduce(state: state, event: .surpriseTriggered(first)).state
+        XCTAssertEqual(state.pendingSurprise?.id, firstID)
+        XCTAssertEqual(state.surpriseCount, 1)
+
+        state = LiveStateReducer.reduce(state: state, event: .surpriseTriggered(second)).state
+        XCTAssertEqual(state.pendingSurprise?.id, firstID)
+        XCTAssertEqual(state.surpriseCount, 1)
+
+        state = LiveStateReducer.reduce(state: state, event: .surpriseCleared(firstID)).state
+        XCTAssertNil(state.pendingSurprise)
+        XCTAssertNil(SurpriseEngine.next(for: state))
+    }
+
+    func testCheckpointRestoreRecordsDeterministicBranchLineage() {
+        let encounterID = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let originalBranch = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+        let checkpointID = UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        let state = EncounterState(id: encounterID, lifecycle: .active, activeBranchID: originalBranch)
+        let checkpoint = Branching.checkpoint(state, id: checkpointID)
+
+        let restored = LiveStateReducer.reduce(state: state, event: .checkpointRestored(checkpoint)).state
+        XCTAssertNotEqual(restored.activeBranchID, originalBranch)
+        XCTAssertEqual(restored.branchLineage.parentCheckpointID(for: restored.activeBranchID), checkpointID)
+    }
+
+    func testSurpriseLifecycleReplaysExactly() {
+        let encounterID = UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")!
+        let surpriseID = UUID(uuidString: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")!
+        let initial = EncounterState(id: encounterID, lifecycle: .active)
+        let surprise = Surprise(id: surpriseID, kind: .deeperProbe, targetObjectiveID: "architectureReasoning", reason: "Probe")
+
+        let events: [RecordedEvent] = [
+            .init(sequence: 1, event: .surpriseTriggered(surprise)),
+            .init(sequence: 2, event: .surpriseCleared(surpriseID))
+        ]
+        let first = ReplayEngine.replay(initial: initial, events: events)
+        let second = ReplayEngine.replay(initial: initial, events: events)
+        XCTAssertEqual(first, second)
+        XCTAssertNil(first.pendingSurprise)
+        XCTAssertEqual(first.surpriseCount, 1)
+    }
+
 }
