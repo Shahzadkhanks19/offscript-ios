@@ -1,11 +1,11 @@
 import Foundation
 
 public protocol EvaluationService: Sendable {
-    func evaluate(turnID: UUID, text: String, state: EncounterState) async throws -> AnswerEvaluation
+    func evaluate(turnID: UUID, text: String, context: EvaluationContext) async throws -> AnswerEvaluation
 }
 
 public protocol CounterpartService: Sendable {
-    func respond(to action: PolicyAction, state: EncounterState) async throws -> String
+    func respond(to action: PolicyAction, context: CounterpartContext) async throws -> String
 }
 
 public protocol CheckpointStore: Sendable {
@@ -41,10 +41,10 @@ public struct EffectRunner: Sendable {
         case let .evaluateAnswer(turnID, text):
             return .answerEvaluated(
                 turnID: turnID,
-                try await evaluation.evaluate(turnID: turnID, text: text, state: state)
+                try await evaluation.evaluate(turnID: turnID, text: text, context: EvaluationContext(state: state))
             )
         case let .requestCounterpartAction(action):
-            return .counterpartResponded(try await counterpart.respond(to: action, state: state))
+            return .counterpartResponded(try await counterpart.respond(to: action, context: CounterpartContext(state: state)))
         case let .persistCheckpoint(checkpoint):
             try await checkpoints.save(checkpoint)
             return nil
