@@ -150,15 +150,49 @@ private actor FailOnKindEventStore: EventStore {
 private actor MemoryRuntimeJournal: RuntimeJournal {
     private(set) var events: [EventRecord] = []
     private(set) var intents: [UUID: DurableEffectIntent] = [:]
+    private var completedIntentIDs: Set<UUID> = []
 
     func commit(
         event: EventRecord,
         intents newIntents: [DurableEffectIntent],
         completing intentID: UUID?
     ) async throws {
+        if let existing = events.first(where: { $0.id == event.id }) {
+            guard existing == event else {
+                throw RuntimeJournalError.eventConflict(id: event.id)
+            }
+            return
+        }
+
+        if let encounterID = event.encounterID,
+           let existing = events.first(where: {
+               $0.encounterID == encounterID && $0.sequence == event.sequence
+           }) {
+            guard existing == event else {
+                throw RuntimeJournalError.sequenceConflict(
+                    encounterID: encounterID,
+                    sequence: event.sequence
+                )
+            }
+            return
+        }
+
+        for intent in newIntents {
+            if let existing = intents[intent.id], existing != intent {
+                throw RuntimeJournalError.intentConflict(id: intent.id)
+            }
+        }
+
+        // In-memory test journal models one atomic transaction: validation is
+        // complete before any event/outbox/completion state mutates.
         events.append(event)
-        if let intentID { intents.removeValue(forKey: intentID) }
-        for intent in newIntents { intents[intent.id] = intent }
+        if let intentID {
+            intents.removeValue(forKey: intentID)
+            completedIntentIDs.insert(intentID)
+        }
+        for intent in newIntents where !completedIntentIDs.contains(intent.id) {
+            intents[intent.id] = intent
+        }
     }
 
     func pendingIntents(encounterID: UUID) async throws -> [DurableEffectIntent] {
@@ -167,6 +201,7 @@ private actor MemoryRuntimeJournal: RuntimeJournal {
 
     func markCompleted(intentID: UUID) async throws {
         intents.removeValue(forKey: intentID)
+        completedIntentIDs.insert(intentID)
     }
 }
 
@@ -639,6 +674,100 @@ final class EncounterRuntimeTests: XCTestCase {
             "answerEvaluated",
             "counterpartResponded"
         ])
+    }
+
+    func testJournalExactCommitReplayIsIdempotent() async throws {
+        let journal = MemoryRuntimeJournal()
+        let initial = EncounterState(lifecycle: .active)
+        let reduction = LiveStateReducer.reduce(
+            state: initial,
+            event: .userSubmitted("Exactly once in the journal")
+        )
+        guard case let .persistEvent(record)? = reduction.effects.first(where: {
+            if case .persistEvent = $0 { return true }
+            return false
+        }) else {
+            return XCTFail("Expected event record")
+        }
+        let effects = reduction.effects.filter {
+            if case .persistEvent = $0 { return false }
+            return true
+        }
+        let intents = DurableEffectPlanner.intents(effects: effects, state: reduction.state)
+
+        try await journal.commit(event: record, intents: intents, completing: nil)
+        try await journal.commit(event: record, intents: intents, completing: nil)
+
+        let events = await journal.events
+        XCTAssertEqual(events, [record])
+        let pending = try await journal.pendingIntents(encounterID: initial.id)
+        XCTAssertEqual(pending, intents)
+    }
+
+    func testJournalRejectsDifferentEventAtSameEncounterSequence() async throws {
+        let journal = MemoryRuntimeJournal()
+        let encounterID = UUID()
+        let branchID = UUID()
+        let first = EventRecord(
+            id: UUID(),
+            encounterID: encounterID,
+            branchID: branchID,
+            sequence: 1,
+            timestamp: Date(timeIntervalSince1970: 1),
+            event: .userSubmitted("first")
+        )
+        let conflicting = EventRecord(
+            id: UUID(),
+            encounterID: encounterID,
+            branchID: branchID,
+            sequence: 1,
+            timestamp: Date(timeIntervalSince1970: 1),
+            event: .userSubmitted("different")
+        )
+
+        try await journal.commit(event: first, intents: [], completing: nil)
+
+        do {
+            try await journal.commit(event: conflicting, intents: [], completing: nil)
+            XCTFail("Expected sequence conflict")
+        } catch let error as RuntimeJournalError {
+            XCTAssertEqual(
+                error,
+                .sequenceConflict(encounterID: encounterID, sequence: 1)
+            )
+        }
+
+        let events = await journal.events
+        XCTAssertEqual(events, [first])
+    }
+
+    func testJournalCompletionIsIdempotentAndDoesNotResurrectIntent() async throws {
+        let journal = MemoryRuntimeJournal()
+        let initial = EncounterState(lifecycle: .active)
+        let reduction = LiveStateReducer.reduce(
+            state: initial,
+            event: .userSubmitted("Complete me once")
+        )
+        guard case let .persistEvent(record)? = reduction.effects.first(where: {
+            if case .persistEvent = $0 { return true }
+            return false
+        }) else {
+            return XCTFail("Expected event record")
+        }
+        let effects = reduction.effects.filter {
+            if case .persistEvent = $0 { return false }
+            return true
+        }
+        let intents = DurableEffectPlanner.intents(effects: effects, state: reduction.state)
+        guard let intent = intents.first else { return XCTFail("Expected intent") }
+
+        try await journal.commit(event: record, intents: intents, completing: nil)
+        try await journal.markCompleted(intentID: intent.id)
+        try await journal.markCompleted(intentID: intent.id)
+        try await journal.commit(event: record, intents: intents, completing: nil)
+
+        let pending = try await journal.pendingIntents(encounterID: initial.id)
+        XCTAssertTrue(pending.isEmpty)
     }
 
 }
