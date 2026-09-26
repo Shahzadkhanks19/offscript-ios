@@ -80,7 +80,16 @@ public actor EncounterRuntime {
             }
 
         for intent in intents {
-            let produced = try await runner.run(intent.payload.effect, state: intent.state)
+            let produced: SimulationEvent?
+            if let cached = try await journal.result(for: intent.id) {
+                produced = cached
+            } else {
+                produced = try await runner.run(intent.payload.effect, state: intent.state)
+                if let produced {
+                    try await journal.saveResult(produced, for: intent.id)
+                }
+            }
+
             if let produced {
                 try await process(events: [produced], completing: intent.id)
             } else {
@@ -144,7 +153,16 @@ public actor EncounterRuntime {
                 state = reduction.state
 
                 for intent in intents {
-                    let produced = try await runner.run(intent.payload.effect, state: intent.state)
+                    let produced: SimulationEvent?
+                    if let cached = try await journal.result(for: intent.id) {
+                        produced = cached
+                    } else {
+                        produced = try await runner.run(intent.payload.effect, state: intent.state)
+                        if let produced {
+                            try await journal.saveResult(produced, for: intent.id)
+                        }
+                    }
+
                     if let produced {
                         try await process(events: [produced], completing: intent.id)
                     } else {
