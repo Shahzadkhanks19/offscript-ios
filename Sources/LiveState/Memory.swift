@@ -13,10 +13,13 @@ public struct MemoryItem: Identifiable, Equatable, Sendable, Codable {
 }
 
 public enum CounterpartMemory {
-    public static func derive(turnID: UUID, evaluation: AnswerEvaluation) -> [MemoryItem] {
+    public static func derive(turnID: UUID, evaluation: AnswerEvaluation, id: (Int) -> UUID = { _ in UUID() }) -> [MemoryItem] {
         evaluation.objectiveEvaluations
             .filter { $0.status != .unresolved && $0.confidence >= 0.6 }
-            .map { MemoryItem(sourceTurnID: turnID, topic: $0.objectiveID, summary: $0.reason, importance: $0.confidence) }
+            .enumerated()
+            .map { index, value in
+                MemoryItem(id: id(index), sourceTurnID: turnID, topic: value.objectiveID, summary: value.reason, importance: value.confidence)
+            }
     }
 
     public static func merge(_ incoming: [MemoryItem], into existing: inout [MemoryItem], limit: Int = 12) {
