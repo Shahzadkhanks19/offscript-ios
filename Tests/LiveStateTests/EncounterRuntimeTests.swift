@@ -230,6 +230,54 @@ private actor FailOnceJournalEvaluationService: EvaluationService {
     }
 }
 
+
+private actor IdempotentCheckpointStore: CheckpointStore {
+    private(set) var attempts = 0
+    private(set) var savedByID: [UUID: Checkpoint] = [:]
+
+    func save(_ checkpoint: Checkpoint) async throws {
+        attempts += 1
+        savedByID[checkpoint.id] = checkpoint
+    }
+}
+
+private actor FailOnceCompletionRuntimeJournal: RuntimeJournal {
+    private(set) var events: [EventRecord] = []
+    private(set) var intents: [UUID: DurableEffectIntent] = [:]
+    private var completedIntentIDs: Set<UUID> = []
+    private var shouldFailCompletion = true
+
+    func commit(
+        event: EventRecord,
+        intents newIntents: [DurableEffectIntent],
+        completing intentID: UUID?
+    ) async throws {
+        if !events.contains(where: { $0.id == event.id }) {
+            events.append(event)
+        }
+        if let intentID {
+            intents.removeValue(forKey: intentID)
+            completedIntentIDs.insert(intentID)
+        }
+        for intent in newIntents where !completedIntentIDs.contains(intent.id) {
+            intents[intent.id] = intent
+        }
+    }
+
+    func pendingIntents(encounterID: UUID) async throws -> [DurableEffectIntent] {
+        intents.values.filter { $0.encounterID == encounterID }
+    }
+
+    func markCompleted(intentID: UUID) async throws {
+        if shouldFailCompletion {
+            shouldFailCompletion = false
+            throw TestStoreError.persistenceFailed
+        }
+        intents.removeValue(forKey: intentID)
+        completedIntentIDs.insert(intentID)
+    }
+}
+
 final class EncounterRuntimeTests: XCTestCase {
     func testRuntimeCompletesUserEvaluationPolicyAndCounterpartLoop() async throws {
         let evaluation = AnswerEvaluation(
@@ -768,6 +816,75 @@ final class EncounterRuntimeTests: XCTestCase {
 
         let pending = try await journal.pendingIntents(encounterID: initial.id)
         XCTAssertTrue(pending.isEmpty)
+    }
+
+    func testCheckpointIntentRetryAfterCompletionCrashIsLogicallyIdempotent() async throws {
+        let initial = EncounterState(lifecycle: .active)
+        let checkpointStore = IdempotentCheckpointStore()
+        let journal = FailOnceCompletionRuntimeJournal()
+        let runner = EffectRunner(
+            evaluation: FixedEvaluationService(
+                result: .init(answeredQuestion: true, relevance: 1, specificity: 1)
+            ),
+            counterpart: FixedCounterpartService(response: "unused"),
+            checkpoints: checkpointStore,
+            events: MemoryEventStore()
+        )
+
+        let checkpoint = Checkpoint(
+            id: UUID(),
+            parentBranchID: initial.activeBranchID,
+            state: initial
+        )
+        let intent = DurableEffectIntent(
+            id: UUID(),
+            encounterID: initial.id,
+            branchID: initial.activeBranchID,
+            originatingSequence: initial.sequence,
+            effectIndex: 0,
+            payload: .persistCheckpoint(checkpoint),
+            state: initial
+        )
+        let seedEvent = EventRecord(
+            id: UUID(),
+            encounterID: initial.id,
+            branchID: initial.activeBranchID,
+            sequence: 1,
+            timestamp: Date(timeIntervalSince1970: 1),
+            event: .pressureAdjusted(initial.pressure.base)
+        )
+        try await journal.commit(event: seedEvent, intents: [intent], completing: nil)
+
+        let runtime = EncounterRuntime(
+            state: initial,
+            runner: runner,
+            journal: journal
+        )
+
+        do {
+            _ = try await runtime.resumeJournalIntents()
+            XCTFail("Expected simulated crash/failure while marking completion")
+        } catch {
+            // Checkpoint save succeeded, but durable completion did not.
+        }
+
+        let firstPending = try await journal.pendingIntents(encounterID: initial.id)
+        XCTAssertEqual(firstPending.map(\.id), [intent.id])
+        let firstAttempts = await checkpointStore.attempts
+        let firstSaved = await checkpointStore.savedByID
+        XCTAssertEqual(firstAttempts, 1)
+        XCTAssertEqual(firstSaved.count, 1)
+        XCTAssertEqual(firstSaved[checkpoint.id], checkpoint)
+
+        _ = try await runtime.resumeJournalIntents()
+
+        let remaining = try await journal.pendingIntents(encounterID: initial.id)
+        XCTAssertTrue(remaining.isEmpty)
+        let attempts = await checkpointStore.attempts
+        let saved = await checkpointStore.savedByID
+        XCTAssertEqual(attempts, 2, "At-least-once retry is expected after completion uncertainty.")
+        XCTAssertEqual(saved.count, 1, "Checkpoint ID idempotency prevents logical duplication.")
+        XCTAssertEqual(saved[checkpoint.id], checkpoint)
     }
 
 }
