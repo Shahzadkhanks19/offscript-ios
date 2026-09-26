@@ -20,15 +20,18 @@ public actor EncounterRuntime {
     public private(set) var state: EncounterState
     public private(set) var pendingEffects: [PendingEffect] = []
     private let runner: EffectRunner
+    private let journal: (any RuntimeJournal)?
 
     public init(
         state: EncounterState = .init(),
         pendingEffects: [PendingEffect] = [],
-        runner: EffectRunner
+        runner: EffectRunner,
+        journal: (any RuntimeJournal)? = nil
     ) {
         self.state = state
         self.pendingEffects = pendingEffects
         self.runner = runner
+        self.journal = journal
     }
 
     /// Rebuilds authoritative state and unfinished durable work from an event
@@ -37,14 +40,16 @@ public actor EncounterRuntime {
     public static func recovering(
         initial: EncounterState,
         records: [EventRecord],
-        runner: EffectRunner
+        runner: EffectRunner,
+        journal: (any RuntimeJournal)? = nil
     ) throws -> EncounterRuntime {
         let recoveredState = try ReplayEngine.validatedReplay(initial: initial, records: records)
         let recoveredEffects = try EffectRecovery.pending(initial: initial, records: records)
         return EncounterRuntime(
             state: recoveredState,
             pendingEffects: recoveredEffects,
-            runner: runner
+            runner: runner,
+            journal: journal
         )
     }
 
@@ -72,26 +77,62 @@ public actor EncounterRuntime {
         return state
     }
 
-    private func process(events initialEvents: [SimulationEvent]) async throws {
+    private func process(
+        events initialEvents: [SimulationEvent],
+        completing parentIntentID: UUID? = nil
+    ) async throws {
         var pendingEvents = initialEvents
+        var completionID = parentIntentID
 
         while !pendingEvents.isEmpty {
             let current = pendingEvents.removeFirst()
             let reduction = LiveStateReducer.reduce(state: state, event: current)
 
-            let persistenceEffects = reduction.effects.filter {
-                if case .persistEvent = $0 { return true }
-                return false
+            guard let eventRecord = reduction.effects.compactMap({ effect -> EventRecord? in
+                if case let .persistEvent(record) = effect { return record }
+                return nil
+            }).first else {
+                preconditionFailure("Every reduction must emit exactly one EventRecord")
             }
+
             let postCommitEffects = reduction.effects.filter {
                 if case .persistEvent = $0 { return false }
                 return true
             }
 
-            for effect in persistenceEffects {
-                _ = try await runner.run(effect, state: reduction.state)
+            if let journal {
+                let intents = DurableEffectPlanner.intents(
+                    effects: postCommitEffects,
+                    state: reduction.state
+                )
+                try await journal.commit(
+                    event: eventRecord,
+                    intents: intents,
+                    completing: completionID
+                )
+                completionID = nil
+                state = reduction.state
+
+                let durableIDs = Set(intents.map(\.id))
+                for intent in intents {
+                    let produced = try await runner.run(intent.payload.effect, state: intent.state)
+                    if let produced {
+                        try await process(events: [produced], completing: intent.id)
+                    } else {
+                        try await journal.markCompleted(intentID: intent.id)
+                    }
+                }
+
+                for effect in postCommitEffects {
+                    guard DurableEffectPayload(effect) == nil else { continue }
+                    _ = try await runner.run(effect, state: state)
+                }
+
+                _ = durableIDs
+                continue
             }
 
+            _ = try await runner.run(.persistEvent(eventRecord), state: reduction.state)
             state = reduction.state
 
             for (index, effect) in postCommitEffects.enumerated() {
@@ -107,15 +148,11 @@ public actor EncounterRuntime {
                 }
 
                 if let produced {
-                    // The originating effect has already succeeded. Process its
-                    // result outside the effect's catch scope so a downstream
-                    // failure never requeues and repeats the successful call.
                     try await process(events: [produced])
                 }
             }
         }
-    }
-}
+    }}
 
 
 /// Reconstructs durable work after a process restart using the persisted event
