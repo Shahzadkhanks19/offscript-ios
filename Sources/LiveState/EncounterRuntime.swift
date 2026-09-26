@@ -21,9 +21,31 @@ public actor EncounterRuntime {
     public private(set) var pendingEffects: [PendingEffect] = []
     private let runner: EffectRunner
 
-    public init(state: EncounterState = .init(), runner: EffectRunner) {
+    public init(
+        state: EncounterState = .init(),
+        pendingEffects: [PendingEffect] = [],
+        runner: EffectRunner
+    ) {
         self.state = state
+        self.pendingEffects = pendingEffects
         self.runner = runner
+    }
+
+    /// Rebuilds authoritative state and unfinished durable work from an event
+    /// stream after process relaunch. No recovered effect executes until the
+    /// caller explicitly resumes it (or sends the next event).
+    public static func recovering(
+        initial: EncounterState,
+        records: [EventRecord],
+        runner: EffectRunner
+    ) throws -> EncounterRuntime {
+        let recoveredState = try ReplayEngine.validatedReplay(initial: initial, records: records)
+        let recoveredEffects = try EffectRecovery.pending(initial: initial, records: records)
+        return EncounterRuntime(
+            state: recoveredState,
+            pendingEffects: recoveredEffects,
+            runner: runner
+        )
     }
 
     @discardableResult
