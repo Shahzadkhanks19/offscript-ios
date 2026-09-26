@@ -34,10 +34,12 @@ public enum SimulationEffect: Equatable, Sendable {
 /// Persisted event envelope. Unlike the old kind-only record, this retains the
 /// complete typed event needed to reconstruct an encounter.
 public struct EventRecord: Identifiable, Equatable, Sendable, Codable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
 
     public let id: UUID
     public let schemaVersion: Int
+    public let encounterID: UUID?
+    public let branchID: UUID?
     public let sequence: Int
     public let timestamp: Date
     public let event: SimulationEvent
@@ -45,12 +47,16 @@ public struct EventRecord: Identifiable, Equatable, Sendable, Codable {
     public init(
         id: UUID,
         schemaVersion: Int = EventRecord.currentSchemaVersion,
+        encounterID: UUID? = nil,
+        branchID: UUID? = nil,
         sequence: Int,
         timestamp: Date,
         event: SimulationEvent
     ) {
         self.id = id
         self.schemaVersion = schemaVersion
+        self.encounterID = encounterID
+        self.branchID = branchID
         self.sequence = sequence
         self.timestamp = timestamp
         self.event = event
