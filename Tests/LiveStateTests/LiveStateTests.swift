@@ -624,4 +624,40 @@ final class LiveStateTests: XCTestCase {
         XCTAssertEqual(decoded.guardrails, state.guardrails)
     }
 
+    func testGuardrailDecisionIsPersistedAndReplayable() throws {
+        let encounterID = UUID(uuidString: "abababab-abab-abab-abab-abababababab")!
+        let initial = EncounterState(id: encounterID, lifecycle: .active)
+        let changed = LiveStateReducer.reduce(
+            state: initial,
+            event: .guardrailActionChanged(.redirect)
+        )
+        XCTAssertEqual(changed.state.guardrails.action, .redirect)
+
+        let records = changed.effects.compactMap { effect -> EventRecord? in
+            if case let .persistEvent(record) = effect { return record }
+            return nil
+        }
+        XCTAssertEqual(records.first?.kind, "guardrailActionChanged")
+
+        let replayed = try ReplayEngine.validatedReplay(initial: initial, records: records)
+        XCTAssertEqual(replayed.guardrails.action, .redirect)
+        XCTAssertEqual(replayed, changed.state)
+    }
+
+    func testGuardrailDecisionJSONRoundTripPreservesAction() throws {
+        let record = EventRecord(
+            id: UUID(uuidString: "cdcdcdcd-cdcd-cdcd-cdcd-cdcdcdcdcdcd")!,
+            encounterID: UUID(uuidString: "dededede-dede-dede-dede-dededededede")!,
+            sequence: 1,
+            timestamp: Determinism.timestamp(sequence: 1),
+            event: .guardrailActionChanged(.endEncounter)
+        )
+        let decoded = try JSONDecoder().decode(
+            EventRecord.self,
+            from: JSONEncoder().encode(record)
+        )
+        XCTAssertEqual(decoded, record)
+        XCTAssertEqual(decoded.kind, "guardrailActionChanged")
+    }
+
 }
