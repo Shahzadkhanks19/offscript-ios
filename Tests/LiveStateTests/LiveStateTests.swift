@@ -683,4 +683,38 @@ final class LiveStateTests: XCTestCase {
         )
     }
 
+    func testScenarioCarriesExplicitInterviewDomainByDefault() {
+        XCTAssertEqual(ScenarioState().domain, .interview)
+        XCTAssertEqual(EncounterState().scenario.domain, .interview)
+    }
+
+    func testGuardrailPolicyEvaluatesAuthoritativeScenarioDomain() {
+        let scenario = ScenarioState(
+            domain: .negotiation,
+            title: "Salary Negotiation",
+            role: "Frontend Developer"
+        )
+        let encounter = EncounterState(
+            scenario: scenario,
+            guardrails: .init(allowedDomains: [.interview])
+        )
+
+        XCTAssertEqual(
+            GuardrailPolicy.event(for: encounter),
+            .guardrailActionChanged(.redirect)
+        )
+    }
+
+    func testScenarioDomainSurvivesEncounterPersistence() throws {
+        let state = EncounterState(
+            scenario: .init(domain: .presentation, title: "Product Demo")
+        )
+        let decoded = try JSONDecoder().decode(
+            EncounterState.self,
+            from: JSONEncoder().encode(state)
+        )
+        XCTAssertEqual(decoded.scenario.domain, .presentation)
+        XCTAssertEqual(decoded, state)
+    }
+
 }
