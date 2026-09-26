@@ -113,6 +113,12 @@ public enum LiveStateReducer {
             next.pendingSurprise = surprise
             return .init(state: next, effects: [record, .presentSurprise(surprise)])
 
+        case let .surpriseCleared(id):
+            if next.pendingSurprise?.id == id {
+                next.pendingSurprise = nil
+            }
+            return .init(state: next, effects: [record])
+
         case let .observableSignalsUpdated(signals):
             next.user.latestSignals = signals
             next.user.interruptions += signals.reduce(0) { count, signal in
