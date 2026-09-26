@@ -82,6 +82,8 @@ public enum RuntimeJournalError: Error, Equatable, Sendable {
     case eventConflict(id: UUID)
     case sequenceConflict(encounterID: UUID, sequence: Int)
     case intentConflict(id: UUID)
+    case resultConflict(intentID: UUID)
+    case resultForUnknownIntent(intentID: UUID)
 }
 
 /// Storage contract for the transactional event journal + durable outbox.
@@ -100,10 +102,10 @@ public protocol RuntimeJournal: Sendable {
     func pendingIntents(encounterID: UUID) async throws -> [DurableEffectIntent]
     func markCompleted(intentID: UUID) async throws
 
-    /// Optional durable result cache for result-producing external effects.
-    /// Production journals should persist this by intent ID so a crash after a
-    /// successful model call but before event commit can reuse the exact result
-    /// without calling the provider again.
+    /// Durable result cache for result-producing external effects.
+    /// Implementations must key results by intent ID, reject a different result
+    /// for the same intent, and remove the cached result when that intent is
+    /// completed. Saving a result for an unknown/completed intent must fail.
     func result(for intentID: UUID) async throws -> SimulationEvent?
     func saveResult(_ event: SimulationEvent, for intentID: UUID) async throws
 }
