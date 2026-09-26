@@ -22,12 +22,43 @@ public enum SimulationEffect: Equatable, Sendable {
     case presentSurprise(Surprise)
 }
 
+/// Persisted event envelope. Unlike the old kind-only record, this retains the
+/// complete typed event needed to reconstruct an encounter.
 public struct EventRecord: Identifiable, Equatable, Sendable {
+    public static let currentSchemaVersion = 1
+
     public let id: UUID
+    public let schemaVersion: Int
     public let sequence: Int
-    public let kind: String
     public let timestamp: Date
-    public init(id: UUID = UUID(), sequence: Int, kind: String, timestamp: Date = Date()) {
-        self.id = id; self.sequence = sequence; self.kind = kind; self.timestamp = timestamp
+    public let event: SimulationEvent
+
+    public init(
+        id: UUID,
+        schemaVersion: Int = EventRecord.currentSchemaVersion,
+        sequence: Int,
+        timestamp: Date,
+        event: SimulationEvent
+    ) {
+        self.id = id
+        self.schemaVersion = schemaVersion
+        self.sequence = sequence
+        self.timestamp = timestamp
+        self.event = event
+    }
+
+    public var kind: String {
+        switch event {
+        case .encounterStarted: "encounterStarted"
+        case .userSubmitted: "userSubmitted"
+        case .counterpartResponded: "counterpartResponded"
+        case .answerEvaluated: "answerEvaluated"
+        case .checkpointRestored: "checkpointRestored"
+        case .pressureAdjusted: "pressureAdjusted"
+        case .surpriseTriggered: "surpriseTriggered"
+        case .encounterPaused: "encounterPaused"
+        case .encounterResumed: "encounterResumed"
+        case .encounterCompleted: "encounterCompleted"
+        }
     }
 }
