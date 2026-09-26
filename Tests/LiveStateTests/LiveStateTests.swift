@@ -190,4 +190,72 @@ final class LiveStateTests: XCTestCase {
         XCTAssertEqual(CheckpointPolicy.reason(state: state, evaluation: evaluation, moment: nil), .objectiveProgress)
     }
 
+    func testMultiTurnInterviewAdaptsPolicyAcrossObjectives() {
+        var state = LiveStateReducer.reduce(state: .init(), event: .encounterStarted).state
+
+        let first = EncounterFixture.apply(.init(
+            text: "We chose Next.js because SSR helped discoverability, but it increased server complexity.",
+            evaluation: .init(answeredQuestion: true, relevance: 0.95, specificity: 0.9, objectiveEvaluations: [
+                .init(objectiveID: "architectureReasoning", status: .satisfied, reason: "Explained SSR motivation.", confidence: 0.95),
+                .init(objectiveID: "tradeoffAwareness", status: .satisfied, reason: "Named server complexity.", confidence: 0.92)
+            ])
+        ), to: state)
+        state = first.state
+        XCTAssertTrue(first.effects.contains(.requestCounterpartAction(.deepenFollowUp)))
+
+        state = LiveStateReducer.reduce(state: state, event: .counterpartResponded("Tell me about a production issue you handled.")).state
+
+        let second = EncounterFixture.apply(.init(
+            text: "We had a cache invalidation issue after deployment and fixed the revalidation strategy.",
+            evaluation: .init(answeredQuestion: true, relevance: 0.96, specificity: 0.88, objectiveEvaluations: [
+                .init(objectiveID: "productionExperience", status: .satisfied, reason: "Gave a concrete production incident and response.", confidence: 0.94)
+            ])
+        ), to: state)
+        state = second.state
+
+        XCTAssertEqual(state.objectives.first(where: { $0.id == "productionExperience" })?.status, .satisfied)
+        XCTAssertEqual(state.counterpart.memory.count, 3)
+        XCTAssertTrue(second.effects.contains(.requestCounterpartAction(.acknowledgeAndContinue)))
+        XCTAssertEqual(state.user.totalTurns, 2)
+    }
+
+    func testTakeAnotherCreatesAlternateBranchAndImprovesObjective() {
+        var state = LiveStateReducer.reduce(state: .init(), event: .encounterStarted).state
+
+        let weak = EncounterFixture.apply(.init(
+            text: "Next.js is fast and popular.",
+            evaluation: .init(answeredQuestion: true, relevance: 0.7, specificity: 0.3)
+        ), to: state)
+        state = weak.state
+
+        // Create the retry point explicitly for the fixture: production uses the nearest
+        // meaningful checkpoint selected by CheckpointPolicy.
+        let retryPoint = Branching.checkpoint(state)
+        let original = state
+        let session = RetryEngine.begin(from: retryPoint, original: original)
+        XCTAssertNotEqual(session.original.activeBranchID, session.retry.activeBranchID)
+
+        let improved = EncounterFixture.apply(.init(
+            text: "We chose Next.js for SSR on discoverable pages; the tradeoff was extra server complexity.",
+            evaluation: .init(answeredQuestion: true, relevance: 0.96, specificity: 0.9, objectiveEvaluations: [
+                .init(objectiveID: "architectureReasoning", status: .satisfied, reason: "Explained why SSR was needed.", confidence: 0.96),
+                .init(objectiveID: "tradeoffAwareness", status: .satisfied, reason: "Named the server-complexity tradeoff.", confidence: 0.93)
+            ])
+        ), to: session.retry)
+
+        let comparison = RetryEngine.compare(session, retryState: improved.state)
+        XCTAssertEqual(comparison.objectiveStatusChanges["architectureReasoning"], .satisfied)
+        XCTAssertEqual(comparison.objectiveStatusChanges["tradeoffAwareness"], .satisfied)
+        XCTAssertEqual(improved.state.moments.last?.kind, .strong)
+    }
+
+    func testRetryPreservesPreCheckpointHistory() {
+        var state = EncounterState(lifecycle: .active)
+        state = LiveStateReducer.reduce(state: state, event: .counterpartResponded("Why Next.js?")).state
+        let checkpoint = Branching.checkpoint(state)
+        let retry = RetryEngine.begin(from: checkpoint, original: state).retry
+        XCTAssertEqual(retry.conversation.turns.map(\.text), ["Why Next.js?"])
+        XCTAssertNotEqual(retry.activeBranchID, state.activeBranchID)
+    }
+
 }
