@@ -54,6 +54,28 @@ private actor FailingEventStore: EventStore {
     }
 }
 
+
+private actor FailOnceEvaluationService: EvaluationService {
+    private var shouldFail = true
+    private let result: AnswerEvaluation
+
+    init(result: AnswerEvaluation) {
+        self.result = result
+    }
+
+    func evaluate(
+        turnID: UUID,
+        text: String,
+        context: EvaluationContext
+    ) async throws -> AnswerEvaluation {
+        if shouldFail {
+            shouldFail = false
+            throw TestStoreError.persistenceFailed
+        }
+        return result
+    }
+}
+
 final class EncounterRuntimeTests: XCTestCase {
     func testRuntimeCompletesUserEvaluationPolicyAndCounterpartLoop() async throws {
         let evaluation = AnswerEvaluation(
@@ -162,6 +184,53 @@ final class EncounterRuntimeTests: XCTestCase {
         let savedCheckpoints = await checkpointStore.saved
         XCTAssertEqual(persistenceAttempts, 1)
         XCTAssertTrue(savedCheckpoints.isEmpty)
+    }
+
+    func testRuntimeRetainsAndResumesFailedPostCommitEffect() async throws {
+        let evaluation = AnswerEvaluation(
+            answeredQuestion: true,
+            relevance: 1,
+            specificity: 1
+        )
+        let evaluationService = FailOnceEvaluationService(result: evaluation)
+        let eventStore = MemoryEventStore()
+        let checkpointStore = MemoryCheckpointStore()
+        let runner = EffectRunner(
+            evaluation: evaluationService,
+            counterpart: FixedCounterpartService(response: "Recovered follow-up"),
+            checkpoints: checkpointStore,
+            events: eventStore
+        )
+        let runtime = EncounterRuntime(
+            state: EncounterState(lifecycle: .active),
+            runner: runner
+        )
+
+        do {
+            _ = try await runtime.send(.userSubmitted("Persist me before evaluation."))
+            XCTFail("Expected first evaluation attempt to fail")
+        } catch {
+            // The userSubmitted event is already durable at this point.
+        }
+
+        let committed = await runtime.state
+        let pendingAfterFailure = await runtime.pendingEffects
+        XCTAssertEqual(committed.sequence, 1)
+        XCTAssertEqual(committed.conversation.turns.count, 1)
+        XCTAssertEqual(pendingAfterFailure.count, 1)
+
+        let recovered = try await runtime.resumePendingEffects()
+        XCTAssertTrue((await runtime.pendingEffects).isEmpty)
+        XCTAssertEqual(recovered.sequence, 3)
+        XCTAssertEqual(recovered.conversation.turns.count, 2)
+
+        let records = await eventStore.saved
+        XCTAssertEqual(records.map(\.kind), [
+            "userSubmitted",
+            "answerEvaluated",
+            "counterpartResponded"
+        ])
+        XCTAssertEqual(records.map(\.sequence), [1, 2, 3])
     }
 
 }
