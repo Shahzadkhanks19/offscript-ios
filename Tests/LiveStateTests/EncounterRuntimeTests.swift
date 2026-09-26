@@ -7,7 +7,8 @@ private struct FixedEvaluationService: EvaluationService {
     func evaluate(
         turnID: UUID,
         text: String,
-        context: EvaluationContext
+        context: EvaluationContext,
+        idempotencyKey: UUID
     ) async throws -> AnswerEvaluation {
         result
     }
@@ -18,7 +19,8 @@ private struct FixedCounterpartService: CounterpartService {
 
     func respond(
         to action: PolicyAction,
-        context: CounterpartContext
+        context: CounterpartContext,
+        idempotencyKey: UUID
     ) async throws -> String {
         response
     }
@@ -71,7 +73,8 @@ private actor FailOnceEvaluationService: EvaluationService {
     func evaluate(
         turnID: UUID,
         text: String,
-        context: EvaluationContext
+        context: EvaluationContext,
+        idempotencyKey: UUID
     ) async throws -> AnswerEvaluation {
         if shouldFail {
             shouldFail = false
