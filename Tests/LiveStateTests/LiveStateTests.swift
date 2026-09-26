@@ -434,4 +434,21 @@ final class LiveStateTests: XCTestCase {
         XCTAssertEqual(first.surpriseCount, 1)
     }
 
+    func testLifecyclePolicyRejectsInvalidJumps() {
+        XCTAssertTrue(LifecyclePolicy.canTransition(from: .created, to: .preparing))
+        XCTAssertTrue(LifecyclePolicy.canTransition(from: .active, to: .paused))
+        XCTAssertTrue(LifecyclePolicy.canTransition(from: .reviewing, to: .retrying))
+        XCTAssertFalse(LifecyclePolicy.canTransition(from: .created, to: .completed))
+        XCTAssertFalse(LifecyclePolicy.canTransition(from: .ready, to: .reviewing))
+    }
+
+    func testEncounterCarriesVersionedEngineMetadata() throws {
+        let state = EncounterState()
+        XCTAssertEqual(state.metadata.engineVersion, EngineMetadata.currentEngineVersion)
+        XCTAssertEqual(state.metadata.stateSchemaVersion, EngineMetadata.currentStateSchemaVersion)
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(EncounterState.self, from: data)
+        XCTAssertEqual(decoded.metadata, state.metadata)
+    }
+
 }
