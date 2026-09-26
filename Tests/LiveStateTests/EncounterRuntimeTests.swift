@@ -40,6 +40,20 @@ private actor MemoryEventStore: EventStore {
     }
 }
 
+
+private enum TestStoreError: Error {
+    case persistenceFailed
+}
+
+private actor FailingEventStore: EventStore {
+    private(set) var attempts = 0
+
+    func save(_ record: EventRecord) async throws {
+        attempts += 1
+        throw TestStoreError.persistenceFailed
+    }
+}
+
 final class EncounterRuntimeTests: XCTestCase {
     func testRuntimeCompletesUserEvaluationPolicyAndCounterpartLoop() async throws {
         let evaluation = AnswerEvaluation(
@@ -121,4 +135,31 @@ final class EncounterRuntimeTests: XCTestCase {
         XCTAssertEqual(context.visibleKnowledge.map(\.id), ["role"])
         XCTAssertEqual(context.privateUserContext.map(\.id), ["focus"])
     }
+    func testRuntimeDoesNotCommitStateWhenEventPersistenceFails() async {
+        let eventStore = FailingEventStore()
+        let checkpointStore = MemoryCheckpointStore()
+        let runner = EffectRunner(
+            evaluation: FixedEvaluationService(result: .init(answeredQuestion: true, relevance: 1, specificity: 1)),
+            counterpart: FixedCounterpartService(response: "Should never run"),
+            checkpoints: checkpointStore,
+            events: eventStore
+        )
+        let initial = EncounterState(lifecycle: .active)
+        let runtime = EncounterRuntime(state: initial, runner: runner)
+
+        do {
+            _ = try await runtime.send(.userSubmitted("This must not commit."))
+            XCTFail("Expected persistence failure")
+        } catch {
+            // Expected.
+        }
+
+        let afterFailure = await runtime.state
+        XCTAssertEqual(afterFailure, initial)
+        XCTAssertEqual(afterFailure.sequence, 0)
+        XCTAssertTrue(afterFailure.conversation.turns.isEmpty)
+        XCTAssertEqual(await eventStore.attempts, 1)
+        XCTAssertTrue(await checkpointStore.saved.isEmpty)
+    }
+
 }
