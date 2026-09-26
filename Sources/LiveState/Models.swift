@@ -115,6 +115,7 @@ public struct EncounterState: Equatable, Sendable, Codable {
     public var surpriseCount: Int
     public var surpriseBudget: Int
     public var branchLineage: BranchLineage
+    public var metadata: EngineMetadata
 
     public init(
         id: UUID = UUID(),
@@ -132,11 +133,12 @@ public struct EncounterState: Equatable, Sendable, Codable {
         lastSurpriseTurn: Int? = nil,
         surpriseCount: Int = 0,
         surpriseBudget: Int = 2,
-        branchLineage: BranchLineage = .init()
+        branchLineage: BranchLineage = .init(),
+        metadata: EngineMetadata = .init()
     ) {
         self.id = id; self.lifecycle = lifecycle; self.scenario = scenario; self.counterpart = counterpart
         self.conversation = conversation; self.user = user; self.objectives = objectives; self.pressure = pressure
         self.activeBranchID = activeBranchID; self.sequence = sequence; self.moments = moments; self.pendingSurprise = pendingSurprise; self.lastSurpriseTurn = lastSurpriseTurn
-        self.surpriseCount = max(0, surpriseCount); self.surpriseBudget = max(0, surpriseBudget); self.branchLineage = branchLineage
+        self.surpriseCount = max(0, surpriseCount); self.surpriseBudget = max(0, surpriseBudget); self.branchLineage = branchLineage; self.metadata = metadata
     }
 }
