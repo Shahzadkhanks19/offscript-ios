@@ -14,16 +14,16 @@ public struct Moment: Identifiable, Equatable, Sendable, Codable {
 }
 
 public enum MomentEngine {
-    public static func detect(turnID: UUID, evaluation: AnswerEvaluation) -> Moment? {
+    public static func detect(turnID: UUID, evaluation: AnswerEvaluation, id: UUID = UUID()) -> Moment? {
         let satisfied = evaluation.objectiveEvaluations.filter { $0.status == .satisfied }.map(\.objectiveID)
         if satisfied.count >= 2 && evaluation.specificity >= 0.7 {
-            return Moment(turnID: turnID, kind: .strong, reason: "Specific answer advanced multiple objectives.", evidenceObjectiveIDs: satisfied)
+            return Moment(id: id, turnID: turnID, kind: .strong, reason: "Specific answer advanced multiple objectives.", evidenceObjectiveIDs: satisfied)
         }
         if !evaluation.answeredQuestion || evaluation.relevance < 0.45 {
-            return Moment(turnID: turnID, kind: .turningPoint, reason: "The response did not directly address the active question.", evidenceObjectiveIDs: [])
+            return Moment(id: id, turnID: turnID, kind: .turningPoint, reason: "The response did not directly address the active question.", evidenceObjectiveIDs: [])
         }
         if evaluation.specificity < 0.55 {
-            return Moment(turnID: turnID, kind: .worthRevisiting, reason: "The response would benefit from a concrete example.", evidenceObjectiveIDs: satisfied)
+            return Moment(id: id, turnID: turnID, kind: .worthRevisiting, reason: "The response would benefit from a concrete example.", evidenceObjectiveIDs: satisfied)
         }
         return nil
     }
