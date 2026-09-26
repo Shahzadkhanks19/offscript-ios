@@ -56,7 +56,30 @@ public actor EncounterRuntime {
     @discardableResult
     public func send(_ event: SimulationEvent) async throws -> EncounterState {
         try await resumePendingEffects()
+        try await resumeJournalIntents()
         try await process(events: [event])
+        return state
+    }
+
+    @discardableResult
+    public func resumeJournalIntents() async throws -> EncounterState {
+        guard let journal else { return state }
+        let intents = try await journal.pendingIntents(encounterID: state.id)
+            .sorted {
+                if $0.originatingSequence == $1.originatingSequence {
+                    return $0.effectIndex < $1.effectIndex
+                }
+                return $0.originatingSequence < $1.originatingSequence
+            }
+
+        for intent in intents {
+            let produced = try await runner.run(intent.payload.effect, state: intent.state)
+            if let produced {
+                try await process(events: [produced], completing: intent.id)
+            } else {
+                try await journal.markCompleted(intentID: intent.id)
+            }
+        }
         return state
     }
 
@@ -113,7 +136,6 @@ public actor EncounterRuntime {
                 completionID = nil
                 state = reduction.state
 
-                let durableIDs = Set(intents.map(\.id))
                 for intent in intents {
                     let produced = try await runner.run(intent.payload.effect, state: intent.state)
                     if let produced {
@@ -128,7 +150,6 @@ public actor EncounterRuntime {
                     _ = try await runner.run(effect, state: state)
                 }
 
-                _ = durableIDs
                 continue
             }
 
@@ -152,7 +173,8 @@ public actor EncounterRuntime {
                 }
             }
         }
-    }}
+    }
+}
 
 
 /// Reconstructs durable work after a process restart using the persisted event
