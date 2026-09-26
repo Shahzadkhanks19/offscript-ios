@@ -3,10 +3,19 @@ import XCTest
 
 final class LiveStateTests: XCTestCase {
     func testStartActivatesEncounterAndRequestsOpeningQuestion() {
-        let result = LiveStateReducer.reduce(state: .init(), event: .encounterStarted)
+        let starting = EncounterState(lifecycle: .starting)
+        let result = LiveStateReducer.reduce(state: starting, event: .encounterStarted)
         XCTAssertEqual(result.state.lifecycle, .active)
         XCTAssertEqual(result.state.conversation.turnState, .counterpartThinking)
         XCTAssertTrue(result.effects.contains(.requestCounterpartAction(.askOpeningQuestion)))
+        XCTAssertEqual(result.state.sequence, 1)
+    }
+
+    func testEncounterCannotSkipPreparationAndStartingLifecycle() {
+        let result = LiveStateReducer.reduce(state: .init(), event: .encounterStarted)
+        XCTAssertEqual(result.state.lifecycle, .created)
+        XCTAssertEqual(result.state.conversation.turnState, .idle)
+        XCTAssertFalse(result.effects.contains(.requestCounterpartAction(.askOpeningQuestion)))
         XCTAssertEqual(result.state.sequence, 1)
     }
 
