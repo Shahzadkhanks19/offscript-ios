@@ -18,6 +18,8 @@ public protocol CounterpartService: Sendable {
 }
 
 public protocol CheckpointStore: Sendable {
+    /// Must be idempotent by checkpoint.id. Retrying the same checkpoint after
+    /// a crash must not create a second logical checkpoint.
     func save(_ checkpoint: Checkpoint) async throws
 }
 
