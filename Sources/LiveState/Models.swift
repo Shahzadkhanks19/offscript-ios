@@ -38,19 +38,21 @@ public struct ConversationTurn: Identifiable, Equatable, Sendable, Codable {
 }
 
 public struct ScenarioState: Equatable, Sendable, Codable {
+    public var domain: EncounterDomain
     public var title: String
     public var role: String
     public var company: String?
     public var phase: String
     public var knowledge: ScenarioKnowledge
     public init(
+        domain: EncounterDomain = .interview,
         title: String = "Frontend Developer Interview",
         role: String = "Frontend Developer",
         company: String? = nil,
         phase: String = "opening",
         knowledge: ScenarioKnowledge = .init()
     ) {
-        self.title = title; self.role = role; self.company = company; self.phase = phase; self.knowledge = knowledge
+        self.domain = domain; self.title = title; self.role = role; self.company = company; self.phase = phase; self.knowledge = knowledge
     }
 }
 
