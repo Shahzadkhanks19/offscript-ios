@@ -547,4 +547,37 @@ final class LiveStateTests: XCTestCase {
         }
     }
 
+    func testRetryDoesNotRewindGlobalEventSequence() {
+        let encounterID = UUID(uuidString: "90909090-9090-9090-9090-909090909090")!
+        var checkpointState = EncounterState(id: encounterID, lifecycle: .active, sequence: 3)
+        checkpointState.conversation.turns.append(.init(speaker: .counterpart, text: "Why Next.js?"))
+        let checkpoint = Branching.checkpoint(
+            checkpointState,
+            id: UUID(uuidString: "91919191-9191-9191-9191-919191919191")!
+        )
+
+        var original = checkpointState
+        original.sequence = 9
+
+        let session = RetryEngine.begin(from: checkpoint, original: original)
+        XCTAssertEqual(session.retry.sequence, 9)
+        XCTAssertEqual(
+            session.retry.branchLineage.parentCheckpointID(for: session.retry.activeBranchID),
+            checkpoint.id
+        )
+
+        let next = LiveStateReducer.reduce(
+            state: session.retry,
+            event: .userSubmitted("A different answer")
+        )
+        XCTAssertEqual(next.state.sequence, 10)
+
+        let persisted = next.effects.compactMap { effect -> EventRecord? in
+            if case let .persistEvent(record) = effect { return record }
+            return nil
+        }
+        XCTAssertEqual(persisted.first?.sequence, 10)
+        XCTAssertEqual(persisted.first?.branchID, session.retry.activeBranchID)
+    }
+
 }
