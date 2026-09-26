@@ -97,6 +97,8 @@ public struct EncounterState: Equatable, Sendable, Codable {
     public var pressure: PressureState
     public var activeBranchID: UUID
     public var sequence: Int
+    public var moments: [Moment]
+    public var pendingSurprise: Surprise?
 
     public init(
         id: UUID = UUID(),
@@ -108,10 +110,12 @@ public struct EncounterState: Equatable, Sendable, Codable {
         objectives: [Objective] = [.init(id: "architectureReasoning"), .init(id: "tradeoffAwareness"), .init(id: "productionExperience")],
         pressure: PressureState = .init(),
         activeBranchID: UUID = UUID(),
-        sequence: Int = 0
+        sequence: Int = 0,
+        moments: [Moment] = [],
+        pendingSurprise: Surprise? = nil
     ) {
         self.id = id; self.lifecycle = lifecycle; self.scenario = scenario; self.counterpart = counterpart
         self.conversation = conversation; self.user = user; self.objectives = objectives; self.pressure = pressure
-        self.activeBranchID = activeBranchID; self.sequence = sequence
+        self.activeBranchID = activeBranchID; self.sequence = sequence; self.moments = moments; self.pendingSurprise = pendingSurprise
     }
 }
