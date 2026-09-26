@@ -744,4 +744,47 @@ final class LiveStateTests: XCTestCase {
         })
     }
 
+    func testDurableEffectPlannerCreatesStableCodableOutboxIntent() throws {
+        let state = EncounterState(lifecycle: .active)
+        let reduction = LiveStateReducer.reduce(
+            state: state,
+            event: .userSubmitted("Persist this work.")
+        )
+        let intents = DurableEffectPlanner.intents(
+            effects: reduction.effects,
+            state: reduction.state
+        )
+
+        XCTAssertEqual(intents.count, 1)
+        XCTAssertEqual(intents[0].originatingSequence, 1)
+        guard case .evaluateAnswer = intents[0].payload else {
+            return XCTFail("Expected evaluation intent")
+        }
+
+        let again = DurableEffectPlanner.intents(
+            effects: reduction.effects,
+            state: reduction.state
+        )
+        XCTAssertEqual(intents[0].id, again[0].id)
+
+        let data = try JSONEncoder().encode(intents[0])
+        let decoded = try JSONDecoder().decode(DurableEffectIntent.self, from: data)
+        XCTAssertEqual(decoded, intents[0])
+    }
+
+    func testDurableEffectPlannerExcludesPersistenceAndPresentationEffects() {
+        let state = EncounterState(lifecycle: .active)
+        let moment = Moment(
+            id: UUID(),
+            turnID: UUID(),
+            kind: .strong,
+            reason: "Visible only"
+        )
+        let intents = DurableEffectPlanner.intents(
+            effects: [.presentMoment(moment)],
+            state: state
+        )
+        XCTAssertTrue(intents.isEmpty)
+    }
+
 }
