@@ -1121,4 +1121,86 @@ final class EncounterRuntimeTests: XCTestCase {
         }
     }
 
+    func testResultEventCommitAtomicallyCompletesIntentAndRemovesCachedResult() async throws {
+        let journal = ResultCachingRuntimeJournal()
+        let initial = EncounterState(lifecycle: .active)
+        let firstReduction = LiveStateReducer.reduce(
+            state: initial,
+            event: .userSubmitted("Atomic completion")
+        )
+        guard case let .persistEvent(firstRecord)? = firstReduction.effects.first(where: {
+            if case .persistEvent = $0 { return true }
+            return false
+        }) else {
+            return XCTFail("Expected first event record")
+        }
+        let firstEffects = firstReduction.effects.filter {
+            if case .persistEvent = $0 { return false }
+            return true
+        }
+        let firstIntents = DurableEffectPlanner.intents(
+            effects: firstEffects,
+            state: firstReduction.state
+        )
+        guard let parentIntent = firstIntents.first,
+              let turn = firstReduction.state.conversation.turns.first else {
+            return XCTFail("Expected evaluation intent and user turn")
+        }
+
+        try await journal.commit(event: firstRecord, intents: firstIntents, completing: nil)
+        let result = SimulationEvent.answerEvaluated(
+            turnID: turn.id,
+            .init(answeredQuestion: true, relevance: 1, specificity: 1)
+        )
+        try await journal.saveResult(result, for: parentIntent.id)
+
+        // The test journal deliberately fails the first result-event commit.
+        let resultReduction = LiveStateReducer.reduce(state: firstReduction.state, event: result)
+        guard case let .persistEvent(resultRecord)? = resultReduction.effects.first(where: {
+            if case .persistEvent = $0 { return true }
+            return false
+        }) else {
+            return XCTFail("Expected result event record")
+        }
+        let resultEffects = resultReduction.effects.filter {
+            if case .persistEvent = $0 { return false }
+            return true
+        }
+        let childIntents = DurableEffectPlanner.intents(
+            effects: resultEffects,
+            state: resultReduction.state
+        )
+
+        do {
+            try await journal.commit(
+                event: resultRecord,
+                intents: childIntents,
+                completing: parentIntent.id
+            )
+            XCTFail("Expected first transactional completion to fail")
+        } catch {
+            // Nothing in the transaction may have partially committed.
+        }
+
+        let afterFailureEvents = await journal.events
+        XCTAssertEqual(afterFailureEvents, [firstRecord])
+        let afterFailurePending = try await journal.pendingIntents(encounterID: initial.id)
+        XCTAssertTrue(afterFailurePending.contains { $0.id == parentIntent.id })
+        let cachedAfterFailure = try await journal.result(for: parentIntent.id)
+        XCTAssertEqual(cachedAfterFailure, result)
+
+        try await journal.commit(
+            event: resultRecord,
+            intents: childIntents,
+            completing: parentIntent.id
+        )
+
+        let finalEvents = await journal.events
+        XCTAssertEqual(finalEvents, [firstRecord, resultRecord])
+        let finalPending = try await journal.pendingIntents(encounterID: initial.id)
+        XCTAssertFalse(finalPending.contains { $0.id == parentIntent.id })
+        let cachedAfterSuccess = try await journal.result(for: parentIntent.id)
+        XCTAssertNil(cachedAfterSuccess)
+    }
+
 }
