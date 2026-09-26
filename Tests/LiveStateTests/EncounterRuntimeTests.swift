@@ -323,11 +323,16 @@ private actor ResultCachingRuntimeJournal: RuntimeJournal {
     }
 
     func saveResult(_ event: SimulationEvent, for intentID: UUID) async throws {
-        if let existing = results[intentID] {
-            precondition(existing == event, "Conflicting cached result for durable intent")
-        } else {
-            results[intentID] = event
+        guard intents[intentID] != nil else {
+            throw RuntimeJournalError.resultForUnknownIntent(intentID: intentID)
         }
+        if let existing = results[intentID] {
+            guard existing == event else {
+                throw RuntimeJournalError.resultConflict(intentID: intentID)
+            }
+            return
+        }
+        results[intentID] = event
     }
 }
 
@@ -1020,6 +1025,97 @@ final class EncounterRuntimeTests: XCTestCase {
             "answerEvaluated",
             "counterpartResponded"
         ])
+    }
+
+    func testResultCacheRejectsConflictingResultForSameIntent() async throws {
+        let journal = ResultCachingRuntimeJournal()
+        let initial = EncounterState(lifecycle: .active)
+        let reduction = LiveStateReducer.reduce(
+            state: initial,
+            event: .userSubmitted("Result ownership")
+        )
+        guard case let .persistEvent(record)? = reduction.effects.first(where: {
+            if case .persistEvent = $0 { return true }
+            return false
+        }) else {
+            return XCTFail("Expected event record")
+        }
+        let effects = reduction.effects.filter {
+            if case .persistEvent = $0 { return false }
+            return true
+        }
+        let intents = DurableEffectPlanner.intents(effects: effects, state: reduction.state)
+        guard let intent = intents.first else { return XCTFail("Expected durable intent") }
+
+        try await journal.commit(event: record, intents: intents, completing: nil)
+        let first = SimulationEvent.answerEvaluated(
+            turnID: reduction.state.conversation.turns[0].id,
+            .init(answeredQuestion: true, relevance: 1, specificity: 1)
+        )
+        let conflicting = SimulationEvent.answerEvaluated(
+            turnID: reduction.state.conversation.turns[0].id,
+            .init(answeredQuestion: false, relevance: 0, specificity: 0)
+        )
+
+        try await journal.saveResult(first, for: intent.id)
+        try await journal.saveResult(first, for: intent.id)
+
+        do {
+            try await journal.saveResult(conflicting, for: intent.id)
+            XCTFail("Expected cached-result conflict")
+        } catch let error as RuntimeJournalError {
+            XCTAssertEqual(error, .resultConflict(intentID: intent.id))
+        }
+
+        XCTAssertEqual(try await journal.result(for: intent.id), first)
+    }
+
+    func testResultCacheRejectsUnknownOrCompletedIntentAndCleansUpOnCompletion() async throws {
+        let journal = ResultCachingRuntimeJournal()
+        let unknownID = UUID()
+
+        do {
+            try await journal.saveResult(.surpriseCleared("unknown"), for: unknownID)
+            XCTFail("Expected unknown-intent rejection")
+        } catch let error as RuntimeJournalError {
+            XCTAssertEqual(error, .resultForUnknownIntent(intentID: unknownID))
+        }
+
+        let initial = EncounterState(lifecycle: .active)
+        let reduction = LiveStateReducer.reduce(
+            state: initial,
+            event: .userSubmitted("Clean up cached result")
+        )
+        guard case let .persistEvent(record)? = reduction.effects.first(where: {
+            if case .persistEvent = $0 { return true }
+            return false
+        }) else {
+            return XCTFail("Expected event record")
+        }
+        let effects = reduction.effects.filter {
+            if case .persistEvent = $0 { return false }
+            return true
+        }
+        let intents = DurableEffectPlanner.intents(effects: effects, state: reduction.state)
+        guard let intent = intents.first else { return XCTFail("Expected durable intent") }
+        let result = SimulationEvent.answerEvaluated(
+            turnID: reduction.state.conversation.turns[0].id,
+            .init(answeredQuestion: true, relevance: 1, specificity: 1)
+        )
+
+        try await journal.commit(event: record, intents: intents, completing: nil)
+        try await journal.saveResult(result, for: intent.id)
+        XCTAssertEqual(try await journal.result(for: intent.id), result)
+
+        try await journal.markCompleted(intentID: intent.id)
+        XCTAssertNil(try await journal.result(for: intent.id))
+
+        do {
+            try await journal.saveResult(result, for: intent.id)
+            XCTFail("Expected completed-intent rejection")
+        } catch let error as RuntimeJournalError {
+            XCTAssertEqual(error, .resultForUnknownIntent(intentID: intent.id))
+        }
     }
 
 }
