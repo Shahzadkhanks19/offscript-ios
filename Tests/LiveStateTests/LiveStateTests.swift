@@ -306,4 +306,18 @@ final class LiveStateTests: XCTestCase {
         XCTAssertEqual(first.effects, second.effects)
     }
 
+    func testEventEnvelopeJSONRoundTripPreservesPayload() throws {
+        let encounterID = UUID(uuidString: "77777777-7777-7777-7777-777777777777")!
+        let record = EventRecord(
+            id: Determinism.id(encounterID: encounterID, sequence: 7, domain: "event"),
+            sequence: 7,
+            timestamp: Determinism.timestamp(sequence: 7),
+            event: .userSubmitted("Round-trip this exact answer")
+        )
+        let data = try JSONEncoder().encode(record)
+        let decoded = try JSONDecoder().decode(EventRecord.self, from: data)
+        XCTAssertEqual(decoded, record)
+        XCTAssertEqual(decoded.kind, "userSubmitted")
+    }
+
 }
