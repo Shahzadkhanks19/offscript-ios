@@ -107,6 +107,7 @@ public struct EncounterState: Equatable, Sendable, Codable {
     public var user: ObservableUserState
     public var objectives: [Objective]
     public var pressure: PressureState
+    public var guardrails: GuardrailState
     public var activeBranchID: UUID
     public var sequence: Int
     public var moments: [Moment]
@@ -126,6 +127,7 @@ public struct EncounterState: Equatable, Sendable, Codable {
         user: ObservableUserState = .init(),
         objectives: [Objective] = [.init(id: "architectureReasoning"), .init(id: "tradeoffAwareness"), .init(id: "productionExperience")],
         pressure: PressureState = .init(),
+        guardrails: GuardrailState = .init(),
         activeBranchID: UUID = UUID(),
         sequence: Int = 0,
         moments: [Moment] = [],
@@ -137,7 +139,7 @@ public struct EncounterState: Equatable, Sendable, Codable {
         metadata: EngineMetadata = .init()
     ) {
         self.id = id; self.lifecycle = lifecycle; self.scenario = scenario; self.counterpart = counterpart
-        self.conversation = conversation; self.user = user; self.objectives = objectives; self.pressure = pressure
+        self.conversation = conversation; self.user = user; self.objectives = objectives; self.pressure = pressure; self.guardrails = guardrails
         self.activeBranchID = activeBranchID; self.sequence = sequence; self.moments = moments; self.pendingSurprise = pendingSurprise; self.lastSurpriseTurn = lastSurpriseTurn
         self.surpriseCount = max(0, surpriseCount); self.surpriseBudget = max(0, surpriseBudget); self.branchLineage = branchLineage; self.metadata = metadata
     }
