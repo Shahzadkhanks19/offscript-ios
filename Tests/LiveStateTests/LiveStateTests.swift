@@ -258,4 +258,52 @@ final class LiveStateTests: XCTestCase {
         XCTAssertNotEqual(retry.activeBranchID, state.activeBranchID)
     }
 
+    func testReplayReconstructsExactStateIncludingGeneratedIdentity() {
+        let initial = EncounterState(
+            id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+            activeBranchID: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        )
+        let events: [RecordedEvent] = [
+            .init(sequence: 1, event: .encounterStarted),
+            .init(sequence: 2, event: .counterpartResponded("Why did you choose Next.js?")),
+            .init(sequence: 3, event: .userSubmitted("SSR improved discoverability."))
+        ]
+
+        let first = ReplayEngine.replay(initial: initial, events: events)
+        let second = ReplayEngine.replay(initial: initial, events: events)
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(first.conversation.turns, second.conversation.turns)
+    }
+
+    func testPersistedEventEnvelopeCanDriveReplay() {
+        let initial = EncounterState(
+            id: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!,
+            activeBranchID: UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
+        )
+        let started = LiveStateReducer.reduce(state: initial, event: .encounterStarted)
+        let submitted = LiveStateReducer.reduce(state: started.state, event: .userSubmitted("A persisted answer"))
+
+        let records = (started.effects + submitted.effects).compactMap { effect -> EventRecord? in
+            if case let .persistEvent(record) = effect { return record }
+            return nil
+        }
+
+        let replayed = ReplayEngine.replay(initial: initial, records: records)
+        XCTAssertEqual(replayed, submitted.state)
+        XCTAssertEqual(records.map(\.schemaVersion), [1, 1])
+        XCTAssertEqual(records.map(\.kind), ["encounterStarted", "userSubmitted"])
+    }
+
+    func testDeterministicReductionProducesSameEventEnvelope() {
+        let state = EncounterState(
+            id: UUID(uuidString: "55555555-5555-5555-5555-555555555555")!,
+            activeBranchID: UUID(uuidString: "66666666-6666-6666-6666-666666666666")!
+        )
+        let first = LiveStateReducer.reduce(state: state, event: .userSubmitted("Same input"))
+        let second = LiveStateReducer.reduce(state: state, event: .userSubmitted("Same input"))
+        XCTAssertEqual(first.state, second.state)
+        XCTAssertEqual(first.effects, second.effects)
+    }
+
 }
