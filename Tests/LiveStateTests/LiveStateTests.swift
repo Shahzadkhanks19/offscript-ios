@@ -141,7 +141,7 @@ final class LiveStateTests: XCTestCase {
     }
 
     func testBranchComparisonReportsObjectiveChange() {
-        var original = EncounterState(lifecycle: .active)
+        let original = EncounterState(lifecycle: .active)
         let checkpoint = Branching.checkpoint(original)
         var retry = Branching.restore(checkpoint)
         retry.objectives[0].status = .satisfied
