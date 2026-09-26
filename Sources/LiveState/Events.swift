@@ -7,6 +7,7 @@ public enum SimulationEvent: Equatable, Sendable {
     case answerEvaluated(turnID: UUID, AnswerEvaluation)
     case checkpointRestored(Checkpoint)
     case pressureAdjusted(Double)
+    case surpriseTriggered(Surprise)
     case encounterPaused
     case encounterResumed
     case encounterCompleted
@@ -17,6 +18,8 @@ public enum SimulationEffect: Equatable, Sendable {
     case requestCounterpartAction(PolicyAction)
     case persistCheckpoint(Checkpoint)
     case persistEvent(EventRecord)
+    case presentMoment(Moment)
+    case presentSurprise(Surprise)
 }
 
 public struct EventRecord: Identifiable, Equatable, Sendable {
