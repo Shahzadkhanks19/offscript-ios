@@ -451,4 +451,20 @@ final class LiveStateTests: XCTestCase {
         XCTAssertEqual(decoded.metadata, state.metadata)
     }
 
+    func testReducerRejectsInvalidTerminalLifecycleJump() {
+        let result = LiveStateReducer.reduce(state: .init(lifecycle: .created), event: .encounterCompleted)
+        XCTAssertEqual(result.state.lifecycle, .created)
+        XCTAssertEqual(result.state.sequence, 1)
+    }
+
+    func testReducerAllowsValidTerminalLifecycleProgression() {
+        var state = EncounterState(lifecycle: .processing)
+        state = LiveStateReducer.reduce(state: state, event: .encounterCompleted).state
+        XCTAssertEqual(state.lifecycle, .completed)
+        state = LiveStateReducer.reduce(state: state, event: .reviewStarted).state
+        XCTAssertEqual(state.lifecycle, .reviewing)
+        state = LiveStateReducer.reduce(state: state, event: .retryStarted).state
+        XCTAssertEqual(state.lifecycle, .retrying)
+    }
+
 }
