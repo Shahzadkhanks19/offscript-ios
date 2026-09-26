@@ -36,4 +36,8 @@ public enum GuardrailPolicy {
         guard next != state.action else { return nil }
         return .guardrailActionChanged(next)
     }
+
+    public static func event(for encounter: EncounterState) -> SimulationEvent? {
+        event(for: encounter.scenario.domain, state: encounter.guardrails)
+    }
 }
