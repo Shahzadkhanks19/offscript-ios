@@ -19,6 +19,18 @@ public enum LiveStateReducer {
         ))
 
         switch event {
+        case .preparationStarted:
+            next.lifecycle = .preparing
+            return .init(state: next, effects: [record])
+
+        case .preparationCompleted:
+            next.lifecycle = .ready
+            return .init(state: next, effects: [record])
+
+        case .encounterStarting:
+            next.lifecycle = .starting
+            return .init(state: next, effects: [record])
+
         case .encounterStarted:
             next.lifecycle = .active
             next.conversation.turnState = .counterpartThinking
@@ -99,6 +111,14 @@ public enum LiveStateReducer {
             next.pendingSurprise = surprise
             return .init(state: next, effects: [record, .presentSurprise(surprise)])
 
+        case let .observableSignalsUpdated(signals):
+            next.user.latestSignals = signals
+            next.user.interruptions += signals.reduce(0) { count, signal in
+                guard case let .turn(observation) = signal, observation.interruptedCounterpart else { return count }
+                return count + 1
+            }
+            return .init(state: next, effects: [record])
+
         case .encounterPaused:
             next.lifecycle = .paused; next.conversation.turnState = .paused
             return .init(state: next, effects: [record])
@@ -107,8 +127,24 @@ public enum LiveStateReducer {
             next.lifecycle = .active; next.conversation.turnState = .idle
             return .init(state: next, effects: [record])
 
+        case .encounterEnding:
+            next.lifecycle = .ending
+            return .init(state: next, effects: [record])
+
+        case .encounterProcessing:
+            next.lifecycle = .processing
+            return .init(state: next, effects: [record])
+
         case .encounterCompleted:
             next.lifecycle = .completed; next.conversation.turnState = .idle
+            return .init(state: next, effects: [record])
+
+        case .reviewStarted:
+            next.lifecycle = .reviewing
+            return .init(state: next, effects: [record])
+
+        case .retryStarted:
+            next.lifecycle = .retrying
             return .init(state: next, effects: [record])
         }
     }
