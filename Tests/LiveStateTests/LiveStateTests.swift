@@ -778,7 +778,8 @@ final class LiveStateTests: XCTestCase {
             id: UUID(),
             turnID: UUID(),
             kind: .strong,
-            reason: "Visible only"
+            reason: "Visible only",
+            evidenceObjectiveIDs: []
         )
         let intents = DurableEffectPlanner.intents(
             effects: [.presentMoment(moment)],
