@@ -140,6 +140,10 @@ public enum LiveStateReducer {
             }
             return .init(state: next, effects: [record])
 
+        case let .guardrailActionChanged(action):
+            next.guardrails.action = action
+            return .init(state: next, effects: [record])
+
         case .encounterPaused:
             guard LifecyclePolicy.canTransition(from: next.lifecycle, to: .paused) else { return .init(state: next, effects: [record]) }
             next.lifecycle = .paused; next.conversation.turnState = .paused
