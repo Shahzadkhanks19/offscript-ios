@@ -580,4 +580,22 @@ final class LiveStateTests: XCTestCase {
         XCTAssertEqual(persisted.first?.branchID, session.retry.activeBranchID)
     }
 
+    func testTerminalLifecycleStatesCannotBeRevived() {
+        for terminal in [EncounterLifecycle.failed, .cancelled] {
+            XCTAssertTrue(LifecyclePolicy.isTerminal(terminal))
+            XCTAssertFalse(LifecyclePolicy.canTransition(from: terminal, to: .recovering))
+            XCTAssertFalse(LifecyclePolicy.canTransition(from: terminal, to: .active))
+            XCTAssertFalse(LifecyclePolicy.canTransition(from: terminal, to: .preparing))
+        }
+    }
+
+    func testRecoveryTransitionsAreExplicitAndNonTerminal() {
+        XCTAssertTrue(LifecyclePolicy.canTransition(from: .active, to: .recovering))
+        XCTAssertTrue(LifecyclePolicy.canTransition(from: .paused, to: .recovering))
+        XCTAssertTrue(LifecyclePolicy.canTransition(from: .recovering, to: .active))
+        XCTAssertTrue(LifecyclePolicy.canTransition(from: .recovering, to: .failed))
+        XCTAssertFalse(LifecyclePolicy.canTransition(from: .created, to: .recovering))
+        XCTAssertFalse(LifecyclePolicy.canTransition(from: .completed, to: .recovering))
+    }
+
 }
