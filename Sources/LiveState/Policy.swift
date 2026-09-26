@@ -6,6 +6,9 @@ public enum PolicyAction: String, Equatable, Sendable, Codable {
 
 public enum PolicyEngine {
     public static func nextAction(for state: EncounterState, evaluation: AnswerEvaluation?) -> PolicyAction {
+        if state.guardrails.action == .endEncounter { return .endEncounter }
+        if state.guardrails.action == .redirect { return .closeTopic }
+
         guard let evaluation else { return .askOpeningQuestion }
         if !evaluation.answeredQuestion || evaluation.relevance < 0.45 { return .askForSpecificExample }
         if evaluation.specificity < 0.55 { return .askForSpecificExample }
