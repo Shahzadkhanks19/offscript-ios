@@ -278,6 +278,76 @@ private actor FailOnceCompletionRuntimeJournal: RuntimeJournal {
     }
 }
 
+
+private actor ResultCachingRuntimeJournal: RuntimeJournal {
+    private(set) var events: [EventRecord] = []
+    private(set) var intents: [UUID: DurableEffectIntent] = [:]
+    private(set) var results: [UUID: SimulationEvent] = [:]
+    private var completedIntentIDs: Set<UUID> = []
+    private var shouldFailResultCommit = true
+
+    func commit(
+        event: EventRecord,
+        intents newIntents: [DurableEffectIntent],
+        completing intentID: UUID?
+    ) async throws {
+        if intentID != nil && shouldFailResultCommit {
+            shouldFailResultCommit = false
+            throw TestStoreError.persistenceFailed
+        }
+        if !events.contains(where: { $0.id == event.id }) {
+            events.append(event)
+        }
+        if let intentID {
+            intents.removeValue(forKey: intentID)
+            completedIntentIDs.insert(intentID)
+            results.removeValue(forKey: intentID)
+        }
+        for intent in newIntents where !completedIntentIDs.contains(intent.id) {
+            intents[intent.id] = intent
+        }
+    }
+
+    func pendingIntents(encounterID: UUID) async throws -> [DurableEffectIntent] {
+        intents.values.filter { $0.encounterID == encounterID }
+    }
+
+    func markCompleted(intentID: UUID) async throws {
+        intents.removeValue(forKey: intentID)
+        completedIntentIDs.insert(intentID)
+        results.removeValue(forKey: intentID)
+    }
+
+    func result(for intentID: UUID) async throws -> SimulationEvent? {
+        results[intentID]
+    }
+
+    func saveResult(_ event: SimulationEvent, for intentID: UUID) async throws {
+        if let existing = results[intentID] {
+            precondition(existing == event, "Conflicting cached result for durable intent")
+        } else {
+            results[intentID] = event
+        }
+    }
+}
+
+private actor CountingEvaluationService: EvaluationService {
+    private(set) var calls = 0
+    let result: AnswerEvaluation
+
+    init(result: AnswerEvaluation) { self.result = result }
+
+    func evaluate(
+        turnID: UUID,
+        text: String,
+        context: EvaluationContext,
+        idempotencyKey: UUID
+    ) async throws -> AnswerEvaluation {
+        calls += 1
+        return result
+    }
+}
+
 final class EncounterRuntimeTests: XCTestCase {
     func testRuntimeCompletesUserEvaluationPolicyAndCounterpartLoop() async throws {
         let evaluation = AnswerEvaluation(
@@ -885,6 +955,71 @@ final class EncounterRuntimeTests: XCTestCase {
         XCTAssertEqual(attempts, 2, "At-least-once retry is expected after completion uncertainty.")
         XCTAssertEqual(saved.count, 1, "Checkpoint ID idempotency prevents logical duplication.")
         XCTAssertEqual(saved[checkpoint.id], checkpoint)
+    }
+
+    func testCachedModelResultSurvivesCrashBeforeResultEventCommit() async throws {
+        let initial = EncounterState(lifecycle: .active)
+        let journal = ResultCachingRuntimeJournal()
+        let evaluation = CountingEvaluationService(
+            result: .init(answeredQuestion: true, relevance: 1, specificity: 1)
+        )
+        let runner = EffectRunner(
+            evaluation: evaluation,
+            counterpart: FixedCounterpartService(response: "After cached evaluation"),
+            checkpoints: MemoryCheckpointStore(),
+            events: MemoryEventStore()
+        )
+        let runtime = EncounterRuntime(
+            state: initial,
+            runner: runner,
+            journal: journal
+        )
+
+        do {
+            _ = try await runtime.send(.userSubmitted("Cache this model result"))
+            XCTFail("Expected result-event commit failure")
+        } catch {
+            // The model result is durable, while answerEvaluated is not yet committed.
+        }
+
+        let callsAfterFailure = await evaluation.calls
+        XCTAssertEqual(callsAfterFailure, 1)
+
+        let committedBeforeRestart = await journal.events
+        XCTAssertEqual(committedBeforeRestart.map(\.kind), ["userSubmitted"])
+        let pendingBeforeRestart = try await journal.pendingIntents(encounterID: initial.id)
+        XCTAssertEqual(pendingBeforeRestart.count, 1)
+        guard let evaluationIntent = pendingBeforeRestart.first else {
+            return XCTFail("Expected pending evaluation intent")
+        }
+        let cached = try await journal.result(for: evaluationIntent.id)
+        XCTAssertNotNil(cached)
+
+        let restarted = try EncounterRuntime.recovering(
+            initial: initial,
+            records: committedBeforeRestart,
+            runner: runner,
+            journal: journal
+        )
+        let final = try await restarted.resumeJournalIntents()
+
+        let callsAfterRecovery = await evaluation.calls
+        XCTAssertEqual(
+            callsAfterRecovery,
+            1,
+            "Recovery must commit the cached model result without calling the model again."
+        )
+        XCTAssertEqual(final.sequence, 3)
+        XCTAssertEqual(final.conversation.turns.last?.text, "After cached evaluation")
+
+        let remaining = try await journal.pendingIntents(encounterID: initial.id)
+        XCTAssertTrue(remaining.isEmpty)
+        let finalEvents = await journal.events
+        XCTAssertEqual(finalEvents.map(\.kind), [
+            "userSubmitted",
+            "answerEvaluated",
+            "counterpartResponded"
+        ])
     }
 
 }
