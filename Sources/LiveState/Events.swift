@@ -24,6 +24,7 @@ public enum SimulationEvent: Equatable, Sendable, Codable {
 }
 
 public enum SimulationEffect: Equatable, Sendable {
+    case dispatchEvent(SimulationEvent)
     case evaluateAnswer(turnID: UUID, text: String)
     case requestCounterpartAction(PolicyAction)
     case persistCheckpoint(Checkpoint)
