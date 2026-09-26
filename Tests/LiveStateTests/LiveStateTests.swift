@@ -320,4 +320,69 @@ final class LiveStateTests: XCTestCase {
         XCTAssertEqual(decoded.kind, "userSubmitted")
     }
 
+    func testScenarioKnowledgeDoesNotExposePrivateUserContextToCounterpart() {
+        let knowledge = ScenarioKnowledge(
+            counterpartVisible: [.init(id: "role", value: "Senior React Developer")],
+            privateUserContext: [.init(id: "weakness", value: "Needs practice with system design")]
+        )
+        XCTAssertEqual(knowledge.counterpartContext.map(\.id), ["role"])
+        XCTAssertFalse(knowledge.counterpartContext.contains { $0.id == "weakness" })
+    }
+
+    func testFullEncounterLifecycleProgression() {
+        var state = EncounterState()
+        state = LiveStateReducer.reduce(state: state, event: .preparationStarted).state
+        XCTAssertEqual(state.lifecycle, .preparing)
+        state = LiveStateReducer.reduce(state: state, event: .preparationCompleted).state
+        XCTAssertEqual(state.lifecycle, .ready)
+        state = LiveStateReducer.reduce(state: state, event: .encounterStarting).state
+        XCTAssertEqual(state.lifecycle, .starting)
+        state = LiveStateReducer.reduce(state: state, event: .encounterStarted).state
+        XCTAssertEqual(state.lifecycle, .active)
+        state = LiveStateReducer.reduce(state: state, event: .encounterEnding).state
+        XCTAssertEqual(state.lifecycle, .ending)
+        state = LiveStateReducer.reduce(state: state, event: .encounterProcessing).state
+        XCTAssertEqual(state.lifecycle, .processing)
+        state = LiveStateReducer.reduce(state: state, event: .encounterCompleted).state
+        XCTAssertEqual(state.lifecycle, .completed)
+        state = LiveStateReducer.reduce(state: state, event: .reviewStarted).state
+        XCTAssertEqual(state.lifecycle, .reviewing)
+        state = LiveStateReducer.reduce(state: state, event: .retryStarted).state
+        XCTAssertEqual(state.lifecycle, .retrying)
+    }
+
+    func testObservableSignalsRemainMeasurementsAndUpdateInterruptionCount() {
+        let signals: [ObservableSignal] = [
+            .speech(.init(wordsPerMinute: 142, pauseCount: 2, longestPauseSeconds: 1.4)),
+            .turn(.init(interruptedCounterpart: true, wasInterrupted: false, durationSeconds: 18)),
+            .visual(.init(facePresent: true, lookingAtNotes: false, framingStable: true))
+        ]
+        let result = LiveStateReducer.reduce(
+            state: .init(lifecycle: .active),
+            event: .observableSignalsUpdated(signals)
+        )
+        XCTAssertEqual(result.state.user.latestSignals, signals)
+        XCTAssertEqual(result.state.user.interruptions, 1)
+    }
+
+    func testSignalEventSurvivesJSONPersistenceAndReplay() throws {
+        let event = SimulationEvent.observableSignalsUpdated([
+            .speech(.init(wordsPerMinute: 130, pauseCount: 1, longestPauseSeconds: 0.8))
+        ])
+        let record = EventRecord(
+            id: UUID(uuidString: "88888888-8888-8888-8888-888888888888")!,
+            sequence: 1,
+            timestamp: Determinism.timestamp(sequence: 1),
+            event: event
+        )
+        let decoded = try JSONDecoder().decode(EventRecord.self, from: JSONEncoder().encode(record))
+        XCTAssertEqual(decoded, record)
+
+        let initial = EncounterState()
+        let replayed = ReplayEngine.replay(initial: initial, records: [decoded])
+        XCTAssertEqual(replayed.user.latestSignals, [
+            .speech(.init(wordsPerMinute: 130, pauseCount: 1, longestPauseSeconds: 0.8))
+        ])
+    }
+
 }
