@@ -158,8 +158,10 @@ final class EncounterRuntimeTests: XCTestCase {
         XCTAssertEqual(afterFailure, initial)
         XCTAssertEqual(afterFailure.sequence, 0)
         XCTAssertTrue(afterFailure.conversation.turns.isEmpty)
-        XCTAssertEqual(await eventStore.attempts, 1)
-        XCTAssertTrue(await checkpointStore.saved.isEmpty)
+        let persistenceAttempts = await eventStore.attempts
+        let savedCheckpoints = await checkpointStore.saved
+        XCTAssertEqual(persistenceAttempts, 1)
+        XCTAssertTrue(savedCheckpoints.isEmpty)
     }
 
 }
