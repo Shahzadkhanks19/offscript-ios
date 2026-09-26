@@ -32,9 +32,21 @@ public enum LiveStateReducer {
 
         case let .answerEvaluated(turnID, evaluation):
             apply(evaluation.objectiveEvaluations, turnID: turnID, state: &next)
+            CounterpartDynamics.apply(CounterpartDynamics.delta(for: evaluation), to: &next.counterpart)
+            next.pressure.adaptiveModifier = min(max(next.pressure.adaptiveModifier + PressureEngine.adaptiveDelta(for: evaluation), -1), 1)
+            var effects: [SimulationEffect] = [record]
+            if let moment = MomentEngine.detect(turnID: turnID, evaluation: evaluation) {
+                next.moments.append(moment)
+                effects.append(.presentMoment(moment))
+            }
+            if let surprise = SurpriseEngine.next(for: next) {
+                next.pendingSurprise = surprise
+                effects.append(.presentSurprise(surprise))
+            }
             let checkpoint = Branching.checkpoint(next)
-            let action = PolicyEngine.nextAction(for: next, evaluation: evaluation)
-            return .init(state: next, effects: [record, .persistCheckpoint(checkpoint), .requestCounterpartAction(action)])
+            effects.append(.persistCheckpoint(checkpoint))
+            effects.append(.requestCounterpartAction(PolicyEngine.nextAction(for: next, evaluation: evaluation)))
+            return .init(state: next, effects: effects)
 
         case let .checkpointRestored(checkpoint):
             var restored = Branching.restore(checkpoint)
@@ -44,6 +56,10 @@ public enum LiveStateReducer {
         case let .pressureAdjusted(delta):
             next.pressure.adaptiveModifier = min(max(next.pressure.adaptiveModifier + delta, -1), 1)
             return .init(state: next, effects: [record])
+
+        case let .surpriseTriggered(surprise):
+            next.pendingSurprise = surprise
+            return .init(state: next, effects: [record, .presentSurprise(surprise)])
 
         case .encounterPaused:
             next.lifecycle = .paused; next.conversation.turnState = .paused
@@ -81,6 +97,7 @@ public enum LiveStateReducer {
         case .answerEvaluated: "answerEvaluated"
         case .checkpointRestored: "checkpointRestored"
         case .pressureAdjusted: "pressureAdjusted"
+        case .surpriseTriggered: "surpriseTriggered"
         case .encounterPaused: "encounterPaused"
         case .encounterResumed: "encounterResumed"
         case .encounterCompleted: "encounterCompleted"
