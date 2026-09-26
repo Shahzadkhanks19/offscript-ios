@@ -113,6 +113,39 @@ private actor FailOnceCheckpointStore: CheckpointStore {
     }
 }
 
+
+private actor CountingCounterpartService: CounterpartService {
+    private(set) var calls = 0
+    let response: String
+
+    init(response: String) { self.response = response }
+
+    func respond(
+        to action: PolicyAction,
+        context: CounterpartContext,
+        idempotencyKey: UUID
+    ) async throws -> String {
+        calls += 1
+        return response
+    }
+}
+
+private actor FailOnKindEventStore: EventStore {
+    private(set) var saved: [EventRecord] = []
+    private let failingKind: String
+    private var didFail = false
+
+    init(failingKind: String) { self.failingKind = failingKind }
+
+    func save(_ record: EventRecord) async throws {
+        if record.kind == failingKind && !didFail {
+            didFail = true
+            throw TestStoreError.persistenceFailed
+        }
+        saved.append(record)
+    }
+}
+
 final class EncounterRuntimeTests: XCTestCase {
     func testRuntimeCompletesUserEvaluationPolicyAndCounterpartLoop() async throws {
         let evaluation = AnswerEvaluation(
@@ -420,6 +453,41 @@ final class EncounterRuntimeTests: XCTestCase {
                 "A produced counterpart event must be durably persisted exactly once."
             )
         }
+    }
+
+    func testSuccessfulModelEffectIsNotRequeuedWhenItsProducedEventPersistenceFails() async throws {
+        let counterpart = CountingCounterpartService(response: "One model call only")
+        let eventStore = FailOnKindEventStore(failingKind: "counterpartResponded")
+        let runner = EffectRunner(
+            evaluation: FixedEvaluationService(
+                result: .init(answeredQuestion: true, relevance: 1, specificity: 1)
+            ),
+            counterpart: counterpart,
+            checkpoints: MemoryCheckpointStore(),
+            events: eventStore
+        )
+        let runtime = EncounterRuntime(
+            state: EncounterState(lifecycle: .starting),
+            runner: runner
+        )
+
+        do {
+            _ = try await runtime.send(.encounterStarted)
+            XCTFail("Expected produced event persistence to fail")
+        } catch {
+            // The model call succeeded; only persistence of its result failed.
+        }
+
+        let calls = await counterpart.calls
+        let pending = await runtime.pendingEffects
+        XCTAssertEqual(calls, 1)
+        XCTAssertTrue(
+            pending.isEmpty,
+            "A successful external call must not be requeued because processing its result failed."
+        )
+
+        let records = await eventStore.saved
+        XCTAssertEqual(records.map(\.kind), ["encounterStarted"])
     }
 
 }
