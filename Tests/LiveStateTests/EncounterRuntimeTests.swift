@@ -84,6 +84,23 @@ private actor FailOnceEvaluationService: EvaluationService {
     }
 }
 
+private actor RecordingEvaluationService: EvaluationService {
+    private(set) var keys: [UUID] = []
+    let result: AnswerEvaluation
+
+    init(result: AnswerEvaluation) { self.result = result }
+
+    func evaluate(
+        turnID: UUID,
+        text: String,
+        context: EvaluationContext,
+        idempotencyKey: UUID
+    ) async throws -> AnswerEvaluation {
+        keys.append(idempotencyKey)
+        return result
+    }
+}
+
 final class EncounterRuntimeTests: XCTestCase {
     func testRuntimeCompletesUserEvaluationPolicyAndCounterpartLoop() async throws {
         let evaluation = AnswerEvaluation(
@@ -294,6 +311,45 @@ final class EncounterRuntimeTests: XCTestCase {
             "counterpartResponded"
         ])
         XCTAssertEqual(records.map(\.sequence), [1, 2, 3])
+    }
+
+    func testRecoveredEvaluationReusesSameDeterministicIdempotencyKey() async throws {
+        let initial = EncounterState(lifecycle: .active)
+        let service = RecordingEvaluationService(
+            result: .init(answeredQuestion: true, relevance: 1, specificity: 1)
+        )
+        let store = MemoryEventStore()
+        let runner = EffectRunner(
+            evaluation: service,
+            counterpart: FixedCounterpartService(response: "Next"),
+            checkpoints: MemoryCheckpointStore(),
+            events: store
+        )
+
+        let reduction = LiveStateReducer.reduce(
+            state: initial,
+            event: .userSubmitted("Retry-safe answer")
+        )
+        guard let persistence = reduction.effects.first(where: {
+            if case .persistEvent = $0 { return true }
+            return false
+        }), case let .persistEvent(record) = persistence else {
+            return XCTFail("Expected durable event")
+        }
+
+        let recoveredA = try EncounterRuntime.recovering(initial: initial, records: [record], runner: runner)
+        let pendingA = await recoveredA.pendingEffects
+        guard let effectA = pendingA.first else { return XCTFail("Expected recovered work") }
+        _ = try await runner.run(effectA.effect, state: effectA.state)
+
+        let recoveredB = try EncounterRuntime.recovering(initial: initial, records: [record], runner: runner)
+        let pendingB = await recoveredB.pendingEffects
+        guard let effectB = pendingB.first else { return XCTFail("Expected recovered work") }
+        _ = try await runner.run(effectB.effect, state: effectB.state)
+
+        let keys = await service.keys
+        XCTAssertEqual(keys.count, 2)
+        XCTAssertEqual(keys[0], keys[1])
     }
 
 }
