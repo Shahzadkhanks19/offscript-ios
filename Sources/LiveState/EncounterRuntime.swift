@@ -87,3 +87,57 @@ public actor EncounterRuntime {
         }
     }
 }
+
+
+/// Reconstructs durable work after a process restart using the persisted event
+/// stream as the source of truth. Service effects are considered completed only
+/// when their typed result event is present later in the stream. Checkpoint
+/// persistence is intentionally retryable/idempotent. Presentation effects are
+/// ephemeral UI work and are not restored after relaunch.
+public enum EffectRecovery {
+    public static func pending(
+        initial: EncounterState,
+        records: [EventRecord]
+    ) throws -> [PendingEffect] {
+        let ordered = records.sorted { $0.sequence < $1.sequence }
+        var replayState = initial
+        var outstanding: [PendingEffect] = []
+
+        for record in ordered {
+            if let index = outstanding.firstIndex(where: { completes($0.effect, with: record.event) }) {
+                outstanding.remove(at: index)
+            }
+
+            let reduction = LiveStateReducer.reduce(state: replayState, event: record.event)
+            replayState = reduction.state
+
+            for effect in reduction.effects where isRecoverable(effect) {
+                outstanding.append(PendingEffect(effect: effect, state: replayState))
+            }
+        }
+
+        return outstanding
+    }
+
+    private static func isRecoverable(_ effect: SimulationEffect) -> Bool {
+        switch effect {
+        case .evaluateAnswer, .requestCounterpartAction, .persistCheckpoint, .dispatchEvent:
+            return true
+        case .persistEvent, .presentMoment, .presentSurprise:
+            return false
+        }
+    }
+
+    private static func completes(_ effect: SimulationEffect, with event: SimulationEvent) -> Bool {
+        switch (effect, event) {
+        case let (.evaluateAnswer(expectedTurnID, _), .answerEvaluated(actualTurnID, _)):
+            return expectedTurnID == actualTurnID
+        case (.requestCounterpartAction, .counterpartResponded):
+            return true
+        case let (.dispatchEvent(expected), actual):
+            return expected == actual
+        default:
+            return false
+        }
+    }
+}
