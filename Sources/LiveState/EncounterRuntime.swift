@@ -95,19 +95,22 @@ public actor EncounterRuntime {
             state = reduction.state
 
             for (index, effect) in postCommitEffects.enumerated() {
+                let effectState = state
+                let produced: SimulationEvent?
                 do {
-                    if let produced = try await runner.run(effect, state: state) {
-                        // Persist and commit a service result immediately before
-                        // moving to the next sibling effect. Otherwise a later
-                        // failure could discard this already-produced result
-                        // from the local pendingEvents queue.
-                        try await process(events: [produced])
-                    }
+                    produced = try await runner.run(effect, state: effectState)
                 } catch {
                     pendingEffects.append(contentsOf: postCommitEffects[index...].map {
-                        PendingEffect(effect: $0, state: state)
+                        PendingEffect(effect: $0, state: effectState)
                     })
                     throw error
+                }
+
+                if let produced {
+                    // The originating effect has already succeeded. Process its
+                    // result outside the effect's catch scope so a downstream
+                    // failure never requeues and repeats the successful call.
+                    try await process(events: [produced])
                 }
             }
         }
