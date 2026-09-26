@@ -170,6 +170,31 @@ private actor MemoryRuntimeJournal: RuntimeJournal {
     }
 }
 
+
+private actor FailOnceJournalEvaluationService: EvaluationService {
+    private var shouldFail = true
+    private(set) var calls = 0
+    private(set) var keys: [UUID] = []
+    let result: AnswerEvaluation
+
+    init(result: AnswerEvaluation) { self.result = result }
+
+    func evaluate(
+        turnID: UUID,
+        text: String,
+        context: EvaluationContext,
+        idempotencyKey: UUID
+    ) async throws -> AnswerEvaluation {
+        calls += 1
+        keys.append(idempotencyKey)
+        if shouldFail {
+            shouldFail = false
+            throw TestStoreError.serviceFailed
+        }
+        return result
+    }
+}
+
 final class EncounterRuntimeTests: XCTestCase {
     func testRuntimeCompletesUserEvaluationPolicyAndCounterpartLoop() async throws {
         let evaluation = AnswerEvaluation(
@@ -551,6 +576,69 @@ final class EncounterRuntimeTests: XCTestCase {
             legacyEvents.isEmpty,
             "Journal mode must not separately persist events through EventStore."
         )
+    }
+
+    func testJournalRecoversPendingIntentAfterProcessRestartWithoutLegacyDuplicate() async throws {
+        let initial = EncounterState(lifecycle: .active)
+        let journal = MemoryRuntimeJournal()
+        let evaluation = FailOnceJournalEvaluationService(
+            result: .init(answeredQuestion: true, relevance: 1, specificity: 1)
+        )
+        let runner = EffectRunner(
+            evaluation: evaluation,
+            counterpart: FixedCounterpartService(response: "Recovered through journal"),
+            checkpoints: MemoryCheckpointStore(),
+            events: MemoryEventStore()
+        )
+        let firstRuntime = EncounterRuntime(
+            state: initial,
+            runner: runner,
+            journal: journal
+        )
+
+        do {
+            _ = try await firstRuntime.send(.userSubmitted("Crash-safe journal answer"))
+            XCTFail("Expected first evaluation attempt to fail")
+        } catch {
+            // Event + evaluation intent remain durable in the journal.
+        }
+
+        let committedEvents = await journal.events
+        XCTAssertEqual(committedEvents.map(\.kind), ["userSubmitted"])
+        let durablePending = try await journal.pendingIntents(encounterID: initial.id)
+        XCTAssertEqual(durablePending.count, 1)
+
+        let restarted = try EncounterRuntime.recovering(
+            initial: initial,
+            records: committedEvents,
+            runner: runner,
+            journal: journal
+        )
+        let legacyPending = await restarted.pendingEffects
+        XCTAssertTrue(
+            legacyPending.isEmpty,
+            "Journal recovery must not also reconstruct legacy pending effects."
+        )
+
+        let final = try await restarted.resumeJournalIntents()
+        XCTAssertEqual(final.sequence, 3)
+        XCTAssertEqual(final.conversation.turns.last?.text, "Recovered through journal")
+
+        let remaining = try await journal.pendingIntents(encounterID: initial.id)
+        XCTAssertTrue(remaining.isEmpty)
+
+        let calls = await evaluation.calls
+        let keys = await evaluation.keys
+        XCTAssertEqual(calls, 2)
+        XCTAssertEqual(keys.count, 2)
+        XCTAssertEqual(keys[0], keys[1])
+
+        let finalEvents = await journal.events
+        XCTAssertEqual(finalEvents.map(\.kind), [
+            "userSubmitted",
+            "answerEvaluated",
+            "counterpartResponded"
+        ])
     }
 
 }
