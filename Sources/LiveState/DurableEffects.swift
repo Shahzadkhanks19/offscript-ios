@@ -79,7 +79,13 @@ public enum DurableEffectPlanner {
 /// Persistence boundary for a transactional outbox. Production implementations
 /// must append an event and its derived durable intents atomically.
 public protocol RuntimeJournal: Sendable {
-    func commit(event: EventRecord, intents: [DurableEffectIntent]) async throws
+    /// Atomically appends the event, inserts its new durable intents, and, when
+    /// supplied, completes the parent intent that produced this event.
+    func commit(
+        event: EventRecord,
+        intents: [DurableEffectIntent],
+        completing intentID: UUID?
+    ) async throws
     func pendingIntents(encounterID: UUID) async throws -> [DurableEffectIntent]
     func markCompleted(intentID: UUID) async throws
 }
