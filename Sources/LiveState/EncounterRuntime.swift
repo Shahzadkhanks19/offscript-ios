@@ -44,7 +44,11 @@ public actor EncounterRuntime {
         journal: (any RuntimeJournal)? = nil
     ) throws -> EncounterRuntime {
         let recoveredState = try ReplayEngine.validatedReplay(initial: initial, records: records)
-        let recoveredEffects = try EffectRecovery.pending(initial: initial, records: records)
+        // A journal is authoritative for unfinished durable work. Reconstructing
+        // the same effects from event history as well would execute them twice.
+        let recoveredEffects = journal == nil
+            ? try EffectRecovery.pending(initial: initial, records: records)
+            : []
         return EncounterRuntime(
             state: recoveredState,
             pendingEffects: recoveredEffects,
@@ -55,8 +59,11 @@ public actor EncounterRuntime {
 
     @discardableResult
     public func send(_ event: SimulationEvent) async throws -> EncounterState {
-        try await resumePendingEffects()
-        try await resumeJournalIntents()
+        if journal == nil {
+            try await resumePendingEffects()
+        } else {
+            try await resumeJournalIntents()
+        }
         try await process(events: [event])
         return state
     }
