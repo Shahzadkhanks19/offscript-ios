@@ -26,7 +26,13 @@ public enum LiveStateReducer {
             return .init(state: next, effects: [record])
 
         case .preparationCompleted:
-            if LifecyclePolicy.canTransition(from: next.lifecycle, to: .ready) { next.lifecycle = .ready }
+            guard LifecyclePolicy.canTransition(from: next.lifecycle, to: .ready) else {
+                return .init(state: next, effects: [record])
+            }
+            if let guardrailEvent = GuardrailPolicy.event(for: next) {
+                return .init(state: next, effects: [record, .dispatchEvent(guardrailEvent)])
+            }
+            next.lifecycle = .ready
             return .init(state: next, effects: [record])
 
         case .encounterStarting:
