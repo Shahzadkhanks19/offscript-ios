@@ -112,6 +112,9 @@ public struct EncounterState: Equatable, Sendable, Codable {
     public var moments: [Moment]
     public var pendingSurprise: Surprise?
     public var lastSurpriseTurn: Int?
+    public var surpriseCount: Int
+    public var surpriseBudget: Int
+    public var branchLineage: BranchLineage
 
     public init(
         id: UUID = UUID(),
@@ -126,10 +129,14 @@ public struct EncounterState: Equatable, Sendable, Codable {
         sequence: Int = 0,
         moments: [Moment] = [],
         pendingSurprise: Surprise? = nil,
-        lastSurpriseTurn: Int? = nil
+        lastSurpriseTurn: Int? = nil,
+        surpriseCount: Int = 0,
+        surpriseBudget: Int = 2,
+        branchLineage: BranchLineage = .init()
     ) {
         self.id = id; self.lifecycle = lifecycle; self.scenario = scenario; self.counterpart = counterpart
         self.conversation = conversation; self.user = user; self.objectives = objectives; self.pressure = pressure
         self.activeBranchID = activeBranchID; self.sequence = sequence; self.moments = moments; self.pendingSurprise = pendingSurprise; self.lastSurpriseTurn = lastSurpriseTurn
+        self.surpriseCount = max(0, surpriseCount); self.surpriseBudget = max(0, surpriseBudget); self.branchLineage = branchLineage
     }
 }
