@@ -300,7 +300,7 @@ final class LiveStateTests: XCTestCase {
 
         let replayed = ReplayEngine.replay(initial: initial, records: records)
         XCTAssertEqual(replayed, submitted.state)
-        XCTAssertEqual(records.map(\.schemaVersion), [1, 1])
+        XCTAssertEqual(records.map(\.schemaVersion), [2, 2])
         XCTAssertEqual(records.map(\.kind), ["encounterStarted", "userSubmitted"])
     }
 
@@ -474,6 +474,77 @@ final class LiveStateTests: XCTestCase {
         XCTAssertEqual(state.lifecycle, .reviewing)
         state = LiveStateReducer.reduce(state: state, event: .retryStarted).state
         XCTAssertEqual(state.lifecycle, .retrying)
+    }
+
+    func testValidatedReplayRejectsWrongEncounterAndBrokenSequence() throws {
+        let encounterID = UUID(uuidString: "12121212-1212-1212-1212-121212121212")!
+        let otherID = UUID(uuidString: "34343434-3434-3434-3434-343434343434")!
+        let branchID = UUID(uuidString: "56565656-5656-5656-5656-565656565656")!
+        let initial = EncounterState(id: encounterID, activeBranchID: branchID)
+
+        let wrongEncounter = EventRecord(
+            id: UUID(),
+            encounterID: otherID,
+            branchID: branchID,
+            sequence: 1,
+            timestamp: Determinism.timestamp(sequence: 1),
+            event: .preparationStarted
+        )
+        XCTAssertThrowsError(try ReplayEngine.validatedReplay(initial: initial, records: [wrongEncounter])) {
+            XCTAssertEqual($0 as? ReplayValidationError, .encounterMismatch(expected: encounterID, found: otherID))
+        }
+
+        let gap = EventRecord(
+            id: UUID(),
+            encounterID: encounterID,
+            branchID: branchID,
+            sequence: 2,
+            timestamp: Determinism.timestamp(sequence: 2),
+            event: .preparationStarted
+        )
+        XCTAssertThrowsError(try ReplayEngine.validatedReplay(initial: initial, records: [gap])) {
+            XCTAssertEqual($0 as? ReplayValidationError, .sequenceGap(expected: 1, found: 2))
+        }
+    }
+
+    func testValidatedReplayRejectsDuplicateAndFutureSchema() {
+        let encounterID = UUID(uuidString: "78787878-7878-7878-7878-787878787878")!
+        let initial = EncounterState(id: encounterID)
+        let first = EventRecord(
+            id: UUID(),
+            encounterID: encounterID,
+            branchID: initial.activeBranchID,
+            sequence: 1,
+            timestamp: Determinism.timestamp(sequence: 1),
+            event: .preparationStarted
+        )
+        let duplicate = EventRecord(
+            id: UUID(),
+            encounterID: encounterID,
+            branchID: initial.activeBranchID,
+            sequence: 1,
+            timestamp: Determinism.timestamp(sequence: 1),
+            event: .preparationCompleted
+        )
+        XCTAssertThrowsError(try ReplayEngine.validatedReplay(initial: initial, records: [first, duplicate])) {
+            XCTAssertEqual($0 as? ReplayValidationError, .duplicateSequence(1))
+        }
+
+        let future = EventRecord(
+            id: UUID(),
+            schemaVersion: EventRecord.currentSchemaVersion + 1,
+            encounterID: encounterID,
+            branchID: initial.activeBranchID,
+            sequence: 1,
+            timestamp: Determinism.timestamp(sequence: 1),
+            event: .preparationStarted
+        )
+        XCTAssertThrowsError(try ReplayEngine.validatedReplay(initial: initial, records: [future])) {
+            XCTAssertEqual(
+                $0 as? ReplayValidationError,
+                .unsupportedSchema(found: EventRecord.currentSchemaVersion + 1, supported: EventRecord.currentSchemaVersion)
+            )
+        }
     }
 
 }
