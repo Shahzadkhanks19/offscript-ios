@@ -15,12 +15,12 @@ public struct Surprise: Identifiable, Equatable, Sendable, Codable {
 }
 
 public enum SurpriseEngine {
-    public static func next(for state: EncounterState) -> Surprise? {
+    public static func next(for state: EncounterState, id: UUID = UUID()) -> Surprise? {
         guard state.pressure.effective >= 0.55, state.user.totalTurns >= 2 else { return nil }
         if let last = state.lastSurpriseTurn, state.user.totalTurns - last < 2 { return nil }
         if let objective = ObjectiveGraph.nextEligible(in: state) {
             let kind: SurpriseKind = objective.id == "tradeoffAwareness" ? .skepticalChallenge : .deeperProbe
-            return Surprise(kind: kind, targetObjectiveID: objective.id, reason: "Probe an eligible unresolved encounter objective.")
+            return Surprise(id: id, kind: kind, targetObjectiveID: objective.id, reason: "Probe an eligible unresolved encounter objective.")
         }
         return nil
     }
