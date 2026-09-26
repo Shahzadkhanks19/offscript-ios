@@ -717,4 +717,31 @@ final class LiveStateTests: XCTestCase {
         XCTAssertEqual(decoded, state)
     }
 
+    func testPreparationAutomaticallyValidatesScenarioDomain() {
+        let initial = EncounterState(
+            lifecycle: .preparing,
+            scenario: .init(domain: .negotiation, title: "Salary Negotiation"),
+            guardrails: .init(allowedDomains: [.interview])
+        )
+        let result = LiveStateReducer.reduce(state: initial, event: .preparationCompleted)
+
+        XCTAssertEqual(result.state.lifecycle, .preparing)
+        XCTAssertTrue(result.effects.contains(.dispatchEvent(.guardrailActionChanged(.redirect))))
+    }
+
+    func testPreparationBecomesReadyWhenScenarioDomainIsAllowed() {
+        let initial = EncounterState(
+            lifecycle: .preparing,
+            scenario: .init(domain: .interview),
+            guardrails: .init(allowedDomains: [.interview])
+        )
+        let result = LiveStateReducer.reduce(state: initial, event: .preparationCompleted)
+
+        XCTAssertEqual(result.state.lifecycle, .ready)
+        XCTAssertFalse(result.effects.contains { effect in
+            if case .dispatchEvent = effect { return true }
+            return false
+        })
+    }
+
 }
