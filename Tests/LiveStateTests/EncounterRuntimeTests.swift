@@ -146,6 +146,30 @@ private actor FailOnKindEventStore: EventStore {
     }
 }
 
+
+private actor MemoryRuntimeJournal: RuntimeJournal {
+    private(set) var events: [EventRecord] = []
+    private(set) var intents: [UUID: DurableEffectIntent] = [:]
+
+    func commit(
+        event: EventRecord,
+        intents newIntents: [DurableEffectIntent],
+        completing intentID: UUID?
+    ) async throws {
+        events.append(event)
+        if let intentID { intents.removeValue(forKey: intentID) }
+        for intent in newIntents { intents[intent.id] = intent }
+    }
+
+    func pendingIntents(encounterID: UUID) async throws -> [DurableEffectIntent] {
+        intents.values.filter { $0.encounterID == encounterID }
+    }
+
+    func markCompleted(intentID: UUID) async throws {
+        intents.removeValue(forKey: intentID)
+    }
+}
+
 final class EncounterRuntimeTests: XCTestCase {
     func testRuntimeCompletesUserEvaluationPolicyAndCounterpartLoop() async throws {
         let evaluation = AnswerEvaluation(
@@ -488,6 +512,45 @@ final class EncounterRuntimeTests: XCTestCase {
 
         let records = await eventStore.saved
         XCTAssertEqual(records.map(\.kind), ["encounterStarted"])
+    }
+
+    func testJournalAtomicallyCarriesEventIntoDurableEvaluationAndCompletesChain() async throws {
+        let journal = MemoryRuntimeJournal()
+        let eventStore = MemoryEventStore()
+        let runner = EffectRunner(
+            evaluation: FixedEvaluationService(
+                result: .init(answeredQuestion: true, relevance: 1, specificity: 1)
+            ),
+            counterpart: FixedCounterpartService(response: "Journal follow-up"),
+            checkpoints: MemoryCheckpointStore(),
+            events: eventStore
+        )
+        let runtime = EncounterRuntime(
+            state: EncounterState(lifecycle: .active),
+            runner: runner,
+            journal: journal
+        )
+
+        let final = try await runtime.send(.userSubmitted("Journal-backed answer"))
+
+        XCTAssertEqual(final.sequence, 3)
+        XCTAssertEqual(final.conversation.turns.last?.text, "Journal follow-up")
+
+        let journalEvents = await journal.events
+        XCTAssertEqual(journalEvents.map(\.kind), [
+            "userSubmitted",
+            "answerEvaluated",
+            "counterpartResponded"
+        ])
+
+        let pending = try await journal.pendingIntents(encounterID: final.id)
+        XCTAssertTrue(pending.isEmpty)
+
+        let legacyEvents = await eventStore.saved
+        XCTAssertTrue(
+            legacyEvents.isEmpty,
+            "Journal mode must not separately persist events through EventStore."
+        )
     }
 
 }
