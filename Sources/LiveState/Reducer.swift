@@ -13,6 +13,8 @@ public enum LiveStateReducer {
         let eventID = Determinism.id(encounterID: state.id, sequence: next.sequence, domain: "event")
         let record = SimulationEffect.persistEvent(.init(
             id: eventID,
+            encounterID: state.id,
+            branchID: state.activeBranchID,
             sequence: next.sequence,
             timestamp: Determinism.timestamp(sequence: next.sequence),
             event: event
