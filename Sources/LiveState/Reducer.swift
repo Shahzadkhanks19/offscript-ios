@@ -32,19 +32,23 @@ public enum LiveStateReducer {
 
         case let .answerEvaluated(turnID, evaluation):
             apply(evaluation.objectiveEvaluations, turnID: turnID, state: &next)
+            CounterpartMemory.merge(CounterpartMemory.derive(turnID: turnID, evaluation: evaluation), into: &next.counterpart.memory)
             CounterpartDynamics.apply(CounterpartDynamics.delta(for: evaluation), to: &next.counterpart)
             next.pressure.adaptiveModifier = min(max(next.pressure.adaptiveModifier + PressureEngine.adaptiveDelta(for: evaluation), -1), 1)
             var effects: [SimulationEffect] = [record]
-            if let moment = MomentEngine.detect(turnID: turnID, evaluation: evaluation) {
+            let detectedMoment = MomentEngine.detect(turnID: turnID, evaluation: evaluation)
+            if let moment = detectedMoment {
                 next.moments.append(moment)
                 effects.append(.presentMoment(moment))
             }
             if let surprise = SurpriseEngine.next(for: next) {
                 next.pendingSurprise = surprise
+                next.lastSurpriseTurn = next.user.totalTurns
                 effects.append(.presentSurprise(surprise))
             }
-            let checkpoint = Branching.checkpoint(next)
-            effects.append(.persistCheckpoint(checkpoint))
+            if CheckpointPolicy.reason(state: next, evaluation: evaluation, moment: detectedMoment) != nil {
+                effects.append(.persistCheckpoint(Branching.checkpoint(next)))
+            }
             effects.append(.requestCounterpartAction(PolicyEngine.nextAction(for: next, evaluation: evaluation)))
             return .init(state: next, effects: effects)
 
