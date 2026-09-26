@@ -150,4 +150,44 @@ final class LiveStateTests: XCTestCase {
         XCTAssertEqual(comparison.objectiveStatusChanges["architectureReasoning"], .satisfied)
     }
 
+    func testObjectiveGraphRespectsDependencies() {
+        var state = EncounterState(lifecycle: .active)
+        XCTAssertEqual(ObjectiveGraph.nextEligible(in: state)?.id, "architectureReasoning")
+        state.objectives[0].status = .satisfied
+        XCTAssertEqual(ObjectiveGraph.nextEligible(in: state)?.id, "tradeoffAwareness")
+    }
+
+    func testCounterpartMemoryKeepsHigherImportanceEvidence() {
+        let turnA = UUID(), turnB = UUID()
+        var memory = [MemoryItem(sourceTurnID: turnA, topic: "architectureReasoning", summary: "weak", importance: 0.65)]
+        CounterpartMemory.merge([.init(sourceTurnID: turnB, topic: "architectureReasoning", summary: "strong", importance: 0.95)], into: &memory)
+        XCTAssertEqual(memory.count, 1)
+        XCTAssertEqual(memory.first?.summary, "strong")
+        XCTAssertEqual(memory.first?.sourceTurnID, turnB)
+    }
+
+    func testSurpriseCooldownPreventsBackToBackSurprises() {
+        var state = EncounterState(lifecycle: .active)
+        state.pressure.base = 0.8
+        state.user.totalTurns = 3
+        state.lastSurpriseTurn = 2
+        XCTAssertNil(SurpriseEngine.next(for: state))
+        state.user.totalTurns = 4
+        XCTAssertNotNil(SurpriseEngine.next(for: state))
+    }
+
+    func testCheckpointPolicyDoesNotCheckpointEveryOrdinaryTurn() {
+        let state = EncounterState(lifecycle: .active)
+        let ordinary = AnswerEvaluation(answeredQuestion: true, relevance: 0.8, specificity: 0.65)
+        XCTAssertNil(CheckpointPolicy.reason(state: state, evaluation: ordinary, moment: nil))
+    }
+
+    func testCheckpointPolicyCapturesObjectiveProgress() {
+        let state = EncounterState(lifecycle: .active)
+        let evaluation = AnswerEvaluation(answeredQuestion: true, relevance: 0.9, specificity: 0.8, objectiveEvaluations: [
+            .init(objectiveID: "architectureReasoning", status: .satisfied, reason: "clear", confidence: 0.9)
+        ])
+        XCTAssertEqual(CheckpointPolicy.reason(state: state, evaluation: evaluation, moment: nil), .objectiveProgress)
+    }
+
 }
