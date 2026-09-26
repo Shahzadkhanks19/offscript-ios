@@ -12,6 +12,14 @@ public enum Determinism {
         return UUID(uuidString: value)!
     }
 
+    public static func branchID(encounterID: UUID, parentBranchID: UUID, checkpointID: UUID, sequence: Int) -> UUID {
+        id(
+            encounterID: encounterID,
+            sequence: sequence,
+            domain: "branch|\(parentBranchID.uuidString.lowercased())|\(checkpointID.uuidString.lowercased())"
+        )
+    }
+
     public static func timestamp(sequence: Int) -> Date {
         Date(timeIntervalSince1970: TimeInterval(sequence) / 1_000)
     }
