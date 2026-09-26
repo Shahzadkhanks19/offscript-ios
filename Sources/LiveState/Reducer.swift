@@ -84,6 +84,7 @@ public enum LiveStateReducer {
             ) {
                 next.pendingSurprise = surprise
                 next.lastSurpriseTurn = next.user.totalTurns
+                next.surpriseCount += 1
                 effects.append(.presentSurprise(surprise))
             }
             if CheckpointPolicy.reason(state: next, evaluation: evaluation, moment: detectedMoment) != nil {
@@ -101,6 +102,7 @@ public enum LiveStateReducer {
                 branchID: Determinism.id(encounterID: state.id, sequence: next.sequence, domain: "branch")
             )
             restored.sequence = next.sequence
+            restored.branchLineage.register(branchID: restored.activeBranchID, parentCheckpointID: checkpoint.id)
             return .init(state: restored, effects: [record])
 
         case let .pressureAdjusted(delta):
