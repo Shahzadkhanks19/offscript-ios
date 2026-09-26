@@ -51,10 +51,11 @@ public struct CounterpartState: Equatable, Sendable, Codable {
     public var skepticism: Double
     public var engagement: Double
     public var rapport: Double
-    public init(name: String = "Maya Chen", role: String = "Senior Engineering Manager", patience: Double = 0.65, skepticism: Double = 0.55, engagement: Double = 0.65, rapport: Double = 0.5) {
+    public var memory: [MemoryItem]
+    public init(name: String = "Maya Chen", role: String = "Senior Engineering Manager", patience: Double = 0.65, skepticism: Double = 0.55, engagement: Double = 0.65, rapport: Double = 0.5, memory: [MemoryItem] = []) {
         self.name = name; self.role = role
         self.patience = Self.clamp(patience); self.skepticism = Self.clamp(skepticism)
-        self.engagement = Self.clamp(engagement); self.rapport = Self.clamp(rapport)
+        self.engagement = Self.clamp(engagement); self.rapport = Self.clamp(rapport); self.memory = memory
     }
     private static func clamp(_ value: Double) -> Double { min(max(value, 0), 1) }
 }
@@ -99,6 +100,7 @@ public struct EncounterState: Equatable, Sendable, Codable {
     public var sequence: Int
     public var moments: [Moment]
     public var pendingSurprise: Surprise?
+    public var lastSurpriseTurn: Int?
 
     public init(
         id: UUID = UUID(),
@@ -112,10 +114,11 @@ public struct EncounterState: Equatable, Sendable, Codable {
         activeBranchID: UUID = UUID(),
         sequence: Int = 0,
         moments: [Moment] = [],
-        pendingSurprise: Surprise? = nil
+        pendingSurprise: Surprise? = nil,
+        lastSurpriseTurn: Int? = nil
     ) {
         self.id = id; self.lifecycle = lifecycle; self.scenario = scenario; self.counterpart = counterpart
         self.conversation = conversation; self.user = user; self.objectives = objectives; self.pressure = pressure
-        self.activeBranchID = activeBranchID; self.sequence = sequence; self.moments = moments; self.pendingSurprise = pendingSurprise
+        self.activeBranchID = activeBranchID; self.sequence = sequence; self.moments = moments; self.pendingSurprise = pendingSurprise; self.lastSurpriseTurn = lastSurpriseTurn
     }
 }
