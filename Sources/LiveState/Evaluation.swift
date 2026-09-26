@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ObjectiveEvaluation: Equatable, Sendable {
+public struct ObjectiveEvaluation: Equatable, Sendable, Codable {
     public let objectiveID: String
     public let status: ObjectiveStatus
     public let reason: String
@@ -10,7 +10,7 @@ public struct ObjectiveEvaluation: Equatable, Sendable {
     }
 }
 
-public struct AnswerEvaluation: Equatable, Sendable {
+public struct AnswerEvaluation: Equatable, Sendable, Codable {
     public var answeredQuestion: Bool
     public var relevance: Double
     public var specificity: Double
