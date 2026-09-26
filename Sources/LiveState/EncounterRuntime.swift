@@ -97,7 +97,11 @@ public actor EncounterRuntime {
             for (index, effect) in postCommitEffects.enumerated() {
                 do {
                     if let produced = try await runner.run(effect, state: state) {
-                        pendingEvents.append(produced)
+                        // Persist and commit a service result immediately before
+                        // moving to the next sibling effect. Otherwise a later
+                        // failure could discard this already-produced result
+                        // from the local pendingEvents queue.
+                        try await process(events: [produced])
                     }
                 } catch {
                     pendingEffects.append(contentsOf: postCommitEffects[index...].map {
