@@ -33,7 +33,11 @@ private actor MemoryCheckpointStore: CheckpointStore {
 }
 
 private actor MemoryEventStore: EventStore {
-    private(set) var saved: [EventRecord] = []
+    private(set) var saved: [EventRecord]
+
+    init(saved: [EventRecord] = []) {
+        self.saved = saved
+    }
 
     func save(_ record: EventRecord) async throws {
         saved.append(record)
@@ -225,6 +229,60 @@ final class EncounterRuntimeTests: XCTestCase {
         XCTAssertTrue(pendingAfterRecovery.isEmpty)
         XCTAssertEqual(recovered.sequence, 3)
         XCTAssertEqual(recovered.conversation.turns.count, 2)
+
+        let records = await eventStore.saved
+        XCTAssertEqual(records.map(\.kind), [
+            "userSubmitted",
+            "answerEvaluated",
+            "counterpartResponded"
+        ])
+        XCTAssertEqual(records.map(\.sequence), [1, 2, 3])
+    }
+
+    func testRuntimeRecoversUnfinishedEvaluationAfterProcessRestart() async throws {
+        let initial = EncounterState(lifecycle: .active)
+        let firstReduction = LiveStateReducer.reduce(
+            state: initial,
+            event: .userSubmitted("A durable answer awaiting evaluation.")
+        )
+        guard case let .persistEvent(record) = firstReduction.effects.first(where: {
+            if case .persistEvent = $0 { return true }
+            return false
+        }) else {
+            return XCTFail("Expected persisted userSubmitted event")
+        }
+
+        let eventStore = MemoryEventStore(saved: [record])
+        let checkpointStore = MemoryCheckpointStore()
+        let runner = EffectRunner(
+            evaluation: FixedEvaluationService(
+                result: .init(answeredQuestion: true, relevance: 1, specificity: 1)
+            ),
+            counterpart: FixedCounterpartService(response: "Recovered after restart"),
+            checkpoints: checkpointStore,
+            events: eventStore
+        )
+
+        let runtime = try EncounterRuntime.recovering(
+            initial: initial,
+            records: [record],
+            runner: runner
+        )
+
+        let restored = await runtime.state
+        let recoveredWork = await runtime.pendingEffects
+        XCTAssertEqual(restored.sequence, 1)
+        XCTAssertEqual(restored.conversation.turns.count, 1)
+        XCTAssertEqual(recoveredWork.count, 1)
+        guard case .evaluateAnswer = recoveredWork[0].effect else {
+            return XCTFail("Expected unfinished evaluation to be reconstructed")
+        }
+
+        let completed = try await runtime.resumePendingEffects()
+        let remaining = await runtime.pendingEffects
+        XCTAssertTrue(remaining.isEmpty)
+        XCTAssertEqual(completed.sequence, 3)
+        XCTAssertEqual(completed.conversation.turns.last?.text, "Recovered after restart")
 
         let records = await eventStore.saved
         XCTAssertEqual(records.map(\.kind), [
