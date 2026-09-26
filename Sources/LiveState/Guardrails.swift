@@ -17,3 +17,23 @@ public struct GuardrailState: Equatable, Sendable, Codable {
         self.action = action
     }
 }
+
+/// Pure, deterministic domain gate. Models may help classify content later,
+/// but only LiveState policy converts trusted inputs into authoritative action.
+public enum GuardrailPolicy {
+    public static func action(
+        for domain: EncounterDomain,
+        state: GuardrailState
+    ) -> GuardrailAction {
+        state.allowedDomains.contains(domain) ? .none : .redirect
+    }
+
+    public static func event(
+        for domain: EncounterDomain,
+        state: GuardrailState
+    ) -> SimulationEvent? {
+        let next = action(for: domain, state: state)
+        guard next != state.action else { return nil }
+        return .guardrailActionChanged(next)
+    }
+}
