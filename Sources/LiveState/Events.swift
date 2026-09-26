@@ -1,6 +1,9 @@
 import Foundation
 
 public enum SimulationEvent: Equatable, Sendable, Codable {
+    case preparationStarted
+    case preparationCompleted
+    case encounterStarting
     case encounterStarted
     case userSubmitted(String)
     case counterpartResponded(String)
@@ -8,9 +11,14 @@ public enum SimulationEvent: Equatable, Sendable, Codable {
     case checkpointRestored(Checkpoint)
     case pressureAdjusted(Double)
     case surpriseTriggered(Surprise)
+    case observableSignalsUpdated([ObservableSignal])
     case encounterPaused
     case encounterResumed
+    case encounterEnding
+    case encounterProcessing
     case encounterCompleted
+    case reviewStarted
+    case retryStarted
 }
 
 public enum SimulationEffect: Equatable, Sendable {
@@ -49,6 +57,9 @@ public struct EventRecord: Identifiable, Equatable, Sendable, Codable {
 
     public var kind: String {
         switch event {
+        case .preparationStarted: "preparationStarted"
+        case .preparationCompleted: "preparationCompleted"
+        case .encounterStarting: "encounterStarting"
         case .encounterStarted: "encounterStarted"
         case .userSubmitted: "userSubmitted"
         case .counterpartResponded: "counterpartResponded"
@@ -56,9 +67,14 @@ public struct EventRecord: Identifiable, Equatable, Sendable, Codable {
         case .checkpointRestored: "checkpointRestored"
         case .pressureAdjusted: "pressureAdjusted"
         case .surpriseTriggered: "surpriseTriggered"
+        case .observableSignalsUpdated: "observableSignalsUpdated"
         case .encounterPaused: "encounterPaused"
         case .encounterResumed: "encounterResumed"
+        case .encounterEnding: "encounterEnding"
+        case .encounterProcessing: "encounterProcessing"
         case .encounterCompleted: "encounterCompleted"
+        case .reviewStarted: "reviewStarted"
+        case .retryStarted: "retryStarted"
         }
     }
 }
