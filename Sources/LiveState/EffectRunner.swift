@@ -38,6 +38,8 @@ public struct EffectRunner: Sendable {
 
     public func run(_ effect: SimulationEffect, state: EncounterState) async throws -> SimulationEvent? {
         switch effect {
+        case let .dispatchEvent(event):
+            return event
         case let .evaluateAnswer(turnID, text):
             return .answerEvaluated(
                 turnID: turnID,
