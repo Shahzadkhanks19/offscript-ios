@@ -220,7 +220,8 @@ final class EncounterRuntimeTests: XCTestCase {
         XCTAssertEqual(pendingAfterFailure.count, 1)
 
         let recovered = try await runtime.resumePendingEffects()
-        XCTAssertTrue((await runtime.pendingEffects).isEmpty)
+        let pendingAfterRecovery = await runtime.pendingEffects
+        XCTAssertTrue(pendingAfterRecovery.isEmpty)
         XCTAssertEqual(recovered.sequence, 3)
         XCTAssertEqual(recovered.conversation.turns.count, 2)
 
