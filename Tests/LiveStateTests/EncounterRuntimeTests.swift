@@ -245,10 +245,10 @@ final class EncounterRuntimeTests: XCTestCase {
             state: initial,
             event: .userSubmitted("A durable answer awaiting evaluation.")
         )
-        guard case let .persistEvent(record) = firstReduction.effects.first(where: {
+        guard let persistenceEffect = firstReduction.effects.first(where: {
             if case .persistEvent = $0 { return true }
             return false
-        }) else {
+        }), case let .persistEvent(record) = persistenceEffect else {
             return XCTFail("Expected persisted userSubmitted event")
         }
 
