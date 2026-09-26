@@ -11,7 +11,16 @@ public struct RetrySession: Equatable, Sendable {
 
 public enum RetryEngine {
     public static func begin(from checkpoint: Checkpoint, original: EncounterState) -> RetrySession {
-        .init(checkpointID: checkpoint.id, original: original, retry: Branching.restore(checkpoint))
+        let branchID = Determinism.branchID(
+            encounterID: original.id,
+            parentBranchID: checkpoint.parentBranchID,
+            checkpointID: checkpoint.id,
+            sequence: original.sequence + 1
+        )
+        var retry = Branching.restore(checkpoint, branchID: branchID)
+        retry.sequence = original.sequence
+        retry.branchLineage.register(branchID: branchID, parentCheckpointID: checkpoint.id)
+        return .init(checkpointID: checkpoint.id, original: original, retry: retry)
     }
 
     public static func compare(_ session: RetrySession, retryState: EncounterState) -> BranchComparison {
