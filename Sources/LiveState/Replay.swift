@@ -4,6 +4,7 @@ public struct RecordedEvent: Equatable, Sendable {
     public let sequence: Int
     public let event: SimulationEvent
     public init(sequence: Int, event: SimulationEvent) { self.sequence = sequence; self.event = event }
+    public init(_ record: EventRecord) { self.sequence = record.sequence; self.event = record.event }
 }
 
 public enum ReplayEngine {
@@ -11,6 +12,10 @@ public enum ReplayEngine {
         events.sorted { $0.sequence < $1.sequence }.reduce(initial) { state, record in
             LiveStateReducer.reduce(state: state, event: record.event).state
         }
+    }
+
+    public static func replay(initial: EncounterState, records: [EventRecord]) -> EncounterState {
+        replay(initial: initial, events: records.map(RecordedEvent.init))
     }
 }
 
