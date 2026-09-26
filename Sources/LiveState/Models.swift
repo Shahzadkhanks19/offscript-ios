@@ -1,7 +1,10 @@
 import Foundation
 
 public enum Speaker: String, Sendable, Codable { case user, counterpart }
-public enum EncounterLifecycle: String, Sendable, Codable { case created, preparing, ready, active, paused, recovering, completed, failed, cancelled }
+public enum EncounterLifecycle: String, Sendable, Codable {
+    case created, preparing, ready, starting, active, ending, processing, completed, reviewing, retrying
+    case paused, recovering, failed, cancelled
+}
 public enum TurnState: String, Sendable, Codable { case idle, userSpeaking, counterpartThinking, counterpartSpeaking, overlap, silence, paused }
 public enum ObjectiveStatus: String, Sendable, Codable { case unresolved, partial, satisfied }
 
@@ -39,8 +42,15 @@ public struct ScenarioState: Equatable, Sendable, Codable {
     public var role: String
     public var company: String?
     public var phase: String
-    public init(title: String = "Frontend Developer Interview", role: String = "Frontend Developer", company: String? = nil, phase: String = "opening") {
-        self.title = title; self.role = role; self.company = company; self.phase = phase
+    public var knowledge: ScenarioKnowledge
+    public init(
+        title: String = "Frontend Developer Interview",
+        role: String = "Frontend Developer",
+        company: String? = nil,
+        phase: String = "opening",
+        knowledge: ScenarioKnowledge = .init()
+    ) {
+        self.title = title; self.role = role; self.company = company; self.phase = phase; self.knowledge = knowledge
     }
 }
 
@@ -77,6 +87,7 @@ public struct ObservableUserState: Equatable, Sendable, Codable {
     public var totalTurns: Int = 0
     public var interruptions: Int = 0
     public var averageTurnCharacterCount: Double = 0
+    public var latestSignals: [ObservableSignal] = []
     public init() {}
 }
 
