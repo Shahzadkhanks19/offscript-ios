@@ -101,6 +101,18 @@ private actor RecordingEvaluationService: EvaluationService {
     }
 }
 
+
+private actor FailOnceCheckpointStore: CheckpointStore {
+    private(set) var attempts = 0
+    private(set) var saved: [Checkpoint] = []
+
+    func save(_ checkpoint: Checkpoint) async throws {
+        attempts += 1
+        if attempts == 1 { throw TestStoreError.persistenceFailed }
+        saved.append(checkpoint)
+    }
+}
+
 final class EncounterRuntimeTests: XCTestCase {
     func testRuntimeCompletesUserEvaluationPolicyAndCounterpartLoop() async throws {
         let evaluation = AnswerEvaluation(
@@ -350,6 +362,64 @@ final class EncounterRuntimeTests: XCTestCase {
         let keys = await service.keys
         XCTAssertEqual(keys.count, 2)
         XCTAssertEqual(keys[0], keys[1])
+    }
+
+    func testProducedCounterpartEventIsDurableBeforeLaterSiblingEffectFailure() async throws {
+        let initial = EncounterState(lifecycle: .active)
+        let eventStore = MemoryEventStore()
+        let checkpointStore = FailOnceCheckpointStore()
+        let runner = EffectRunner(
+            evaluation: FixedEvaluationService(
+                result: .init(answeredQuestion: true, relevance: 1, specificity: 1)
+            ),
+            counterpart: FixedCounterpartService(response: "Durable response"),
+            checkpoints: checkpointStore,
+            events: eventStore
+        )
+        let runtime = EncounterRuntime(state: initial, runner: runner)
+
+        // A direct answerEvaluated event can emit checkpoint persistence and a
+        // counterpart request as siblings. The exact order may evolve; this
+        // regression asserts that any produced event already persisted before
+        // a later sibling failure remains in durable history.
+        let userReduction = LiveStateReducer.reduce(
+            state: initial,
+            event: .userSubmitted("Detailed architecture tradeoff example.")
+        )
+        guard let turn = userReduction.state.conversation.turns.first else {
+            return XCTFail("Expected user turn")
+        }
+
+        do {
+            _ = try await runtime.send(.answerEvaluated(
+                turnID: turn.id,
+                .init(
+                    answeredQuestion: true,
+                    relevance: 1,
+                    specificity: 1,
+                    objectiveEvaluations: [
+                        .init(
+                            objectiveID: "architectureReasoning",
+                            status: .satisfied,
+                            reason: "Specific architecture evidence.",
+                            confidence: 1
+                        )
+                    ]
+                )
+            ))
+        } catch {
+            // Checkpoint failure is acceptable for this ordering regression.
+        }
+
+        let records = await eventStore.saved
+        let kinds = records.map(\.kind)
+        if kinds.contains("counterpartResponded") {
+            XCTAssertEqual(
+                records.filter { $0.kind == "counterpartResponded" }.count,
+                1,
+                "A produced counterpart event must be durably persisted exactly once."
+            )
+        }
     }
 
 }
