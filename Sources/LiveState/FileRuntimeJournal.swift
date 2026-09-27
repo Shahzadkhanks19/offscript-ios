@@ -8,7 +8,7 @@ import Foundation
 /// journal can replace it later without changing EncounterRuntime.
 public actor FileRuntimeJournal: RuntimeJournal {
     private struct Snapshot: Codable, Equatable, Sendable {
-        static let currentSchemaVersion = 1
+        static let currentSchemaVersion = 2
 
         var schemaVersion: Int = currentSchemaVersion
         var events: [EventRecord] = []
@@ -146,6 +146,18 @@ public actor FileRuntimeJournal: RuntimeJournal {
         snapshot = next
     }
 
+    private struct SnapshotHeader: Decodable {
+        let schemaVersion: Int
+    }
+
+    private struct SnapshotV1: Decodable {
+        var schemaVersion: Int
+        var events: [EventRecord]
+        var intents: [UUID: DurableEffectIntent]
+        var results: [UUID: SimulationEvent]
+        var completedIntentIDs: Set<UUID>
+    }
+
     private static func load(from url: URL) throws -> Snapshot {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return Snapshot()
@@ -153,11 +165,25 @@ public actor FileRuntimeJournal: RuntimeJournal {
 
         do {
             let data = try Data(contentsOf: url)
-            let decoded = try JSONDecoder().decode(Snapshot.self, from: data)
-            guard decoded.schemaVersion == Snapshot.currentSchemaVersion else {
-                throw StorageError.unsupportedSchema(decoded.schemaVersion)
+            let decoder = JSONDecoder()
+            let header = try decoder.decode(SnapshotHeader.self, from: data)
+
+            switch header.schemaVersion {
+            case Snapshot.currentSchemaVersion:
+                return try decoder.decode(Snapshot.self, from: data)
+            case 1:
+                let legacy = try decoder.decode(SnapshotV1.self, from: data)
+                return Snapshot(
+                    schemaVersion: Snapshot.currentSchemaVersion,
+                    events: legacy.events,
+                    transactions: [:],
+                    intents: legacy.intents,
+                    results: legacy.results,
+                    completedIntentIDs: legacy.completedIntentIDs
+                )
+            default:
+                throw StorageError.unsupportedSchema(header.schemaVersion)
             }
-            return decoded
         } catch let error as StorageError {
             throw error
         } catch {
