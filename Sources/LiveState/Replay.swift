@@ -9,6 +9,7 @@ public struct RecordedEvent: Equatable, Sendable {
 
 public enum ReplayValidationError: Error, Equatable, Sendable {
     case unsupportedSchema(found: Int, supported: Int)
+    case invalidSchema(found: Int, minimum: Int)
     case encounterMismatch(expected: UUID, found: UUID)
     case duplicateSequence(Int)
     case sequenceGap(expected: Int, found: Int)
@@ -34,6 +35,12 @@ public enum ReplayEngine {
         var previousSequence: Int?
 
         for record in ordered {
+            guard record.schemaVersion >= 1 else {
+                throw ReplayValidationError.invalidSchema(
+                    found: record.schemaVersion,
+                    minimum: 1
+                )
+            }
             guard record.schemaVersion <= EventRecord.currentSchemaVersion else {
                 throw ReplayValidationError.unsupportedSchema(
                     found: record.schemaVersion,
