@@ -166,7 +166,11 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: FakeVoiceInput(), speech: FakeSpeech(), runtime: runtime)
         try await coordinator.handle(.speechStarted)
         try await coordinator.handle(.transcript(.init(text: "My final answer", isFinal: true)))
-        let state = await runtime.state
+        var state = await runtime.state
+        XCTAssertEqual(state.user.totalTurns, 0)
+
+        try await coordinator.handle(.speechEnded)
+        state = await runtime.state
         XCTAssertEqual(state.user.totalTurns, 1)
         XCTAssertEqual(state.conversation.turns.first?.text, "My final answer")
     }
@@ -410,6 +414,7 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
 
         await input.yield(.speechStarted, streamID: 1)
         await input.yield(.transcript(.init(text: "current", isFinal: true)), streamID: 1)
+        await input.yield(.speechEnded, streamID: 1)
 
         while await encounterRuntime.state.user.totalTurns < 1 { await Task.yield() }
         state = await encounterRuntime.state
