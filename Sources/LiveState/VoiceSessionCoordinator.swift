@@ -40,11 +40,10 @@ public actor VoiceSessionCoordinator {
 
     public func handle(_ inputEvent: VoiceInputEvent) async throws {
         let before = await runtime.state
+        let events = bridge.receive(inputEvent, encounter: before)
         if inputEvent == .interruptedCounterpart, before.conversation.turnState == .counterpartSpeaking {
             await speech.stop()
-            _ = try await runtime.send(.counterpartSpeechCancelled)
         }
-        let events = bridge.receive(inputEvent, encounter: before)
         for event in events {
             _ = try await runtime.send(event)
         }
