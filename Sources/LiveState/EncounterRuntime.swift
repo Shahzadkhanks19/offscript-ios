@@ -106,10 +106,10 @@ public actor EncounterRuntime {
                 produced = cached
             } else {
                 produced = try await runner.run(
-                            intent.payload.effect,
-                            state: intent.state,
-                            idempotencyKey: intent.id
-                        )
+                    intent.payload.effect,
+                    state: intent.state,
+                    idempotencyKey: intent.id
+                )
                 if let produced {
                     try await journal.saveResult(produced, for: intent.id)
                 }
@@ -183,10 +183,10 @@ public actor EncounterRuntime {
                         produced = cached
                     } else {
                         produced = try await runner.run(
-                    intent.payload.effect,
-                    state: intent.state,
-                    idempotencyKey: intent.id
-                )
+                            intent.payload.effect,
+                            state: intent.state,
+                            idempotencyKey: intent.id
+                        )
                         if let produced {
                             try await journal.saveResult(produced, for: intent.id)
                         }
