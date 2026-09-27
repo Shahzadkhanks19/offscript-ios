@@ -17,6 +17,23 @@ private actor FakeSpeech: CounterpartSpeechService {
     func stop() async { stops += 1 }
 }
 
+private actor SuspendedSpeech: CounterpartSpeechService {
+    private var continuation: CheckedContinuation<Void, Error>?
+    private(set) var stops = 0
+
+    func speak(_ text: String) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func stop() async {
+        stops += 1
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 private struct VCEvaluation: EvaluationService {
     func evaluate(turnID: UUID, text: String, context: EvaluationContext, idempotencyKey: UUID) async throws -> AnswerEvaluation {
         .init(answeredQuestion: true, relevance: 1, specificity: 1)
@@ -122,6 +139,33 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         try await coordinator.handleActivity(.silenceDuration(milliseconds: 900))
         state = await runtime.state
         XCTAssertEqual(state.conversation.turnState, .silence)
+    }
+
+    func testStaleSpeechCompletionCannotOverwriteBargeInState() async throws {
+        let runtime = runtime()
+        let speech = SuspendedSpeech()
+        let coordinator = VoiceSessionCoordinator(
+            input: FakeVoiceInput(),
+            speech: speech,
+            runtime: runtime
+        )
+
+        let playback = Task {
+            try await coordinator.speakCounterpart("Long counterpart response")
+        }
+
+        while await runtime.state.conversation.turnState != .counterpartSpeaking {
+            await Task.yield()
+        }
+
+        try await coordinator.handle(.interruptedCounterpart)
+        try await playback.value
+
+        let state = await runtime.state
+        let stops = await speech.stops
+        XCTAssertEqual(stops, 1)
+        XCTAssertEqual(state.user.interruptions, 1)
+        XCTAssertEqual(state.conversation.turnState, .userSpeaking)
     }
 
     func testStopStopsBothVoiceDirections() async {
