@@ -196,6 +196,11 @@ private actor MemoryRuntimeJournal: RuntimeJournal {
         }
     }
 
+    func records(encounterID: UUID) async throws -> [EventRecord] {
+        events.filter { $0.encounterID == encounterID }
+            .sorted { $0.sequence < $1.sequence }
+    }
+
     func pendingIntents(encounterID: UUID) async throws -> [DurableEffectIntent] {
         intents.values.filter { $0.encounterID == encounterID }
     }
@@ -285,6 +290,11 @@ private actor FailOnceCompletionRuntimeJournal: RuntimeJournal {
         }
     }
 
+    func records(encounterID: UUID) async throws -> [EventRecord] {
+        events.filter { $0.encounterID == encounterID }
+            .sorted { $0.sequence < $1.sequence }
+    }
+
     func pendingIntents(encounterID: UUID) async throws -> [DurableEffectIntent] {
         intents.values.filter { $0.encounterID == encounterID }
     }
@@ -346,6 +356,11 @@ private actor ResultCachingRuntimeJournal: RuntimeJournal {
         for intent in newIntents where !completedIntentIDs.contains(intent.id) {
             intents[intent.id] = intent
         }
+    }
+
+    func records(encounterID: UUID) async throws -> [EventRecord] {
+        events.filter { $0.encounterID == encounterID }
+            .sorted { $0.sequence < $1.sequence }
     }
 
     func pendingIntents(encounterID: UUID) async throws -> [DurableEffectIntent] {
