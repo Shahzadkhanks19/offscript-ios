@@ -55,6 +55,34 @@ private actor SequencedSpeech: CounterpartSpeechService {
     }
 }
 
+private enum SpeechTestError: Error { case playbackFailed }
+
+private actor FailingSpeech: CounterpartSpeechService {
+    func speak(_ text: String) async throws { throw SpeechTestError.playbackFailed }
+    func stop() async {}
+}
+
+private actor SupersededFailingSpeech: CounterpartSpeechService {
+    private var firstContinuation: CheckedContinuation<Void, Error>?
+    private(set) var spoken: [String] = []
+    private(set) var stops = 0
+
+    func speak(_ text: String) async throws {
+        spoken.append(text)
+        if spoken.count == 1 {
+            try await withCheckedThrowingContinuation { continuation in
+                firstContinuation = continuation
+            }
+        }
+    }
+
+    func stop() async {
+        stops += 1
+        firstContinuation?.resume(throwing: SpeechTestError.playbackFailed)
+        firstContinuation = nil
+    }
+}
+
 private struct VCEvaluation: EvaluationService {
     func evaluate(turnID: UUID, text: String, context: EvaluationContext, idempotencyKey: UUID) async throws -> AnswerEvaluation {
         .init(answeredQuestion: true, relevance: 1, specificity: 1)
@@ -214,6 +242,53 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let state = await runtime.state
         XCTAssertEqual(spoken, ["First response", "Replacement response"])
         XCTAssertEqual(stops, 1)
+        XCTAssertEqual(state.conversation.turnState, .idle)
+    }
+
+    func testCurrentSpeechFailureCancelsAuthoritativeSpeechState() async {
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(
+            input: FakeVoiceInput(),
+            speech: FailingSpeech(),
+            runtime: runtime
+        )
+
+        do {
+            try await coordinator.speakCounterpart("This fails")
+            XCTFail("Expected playback failure")
+        } catch {}
+
+        let state = await runtime.state
+        XCTAssertEqual(state.conversation.turnState, .idle)
+    }
+
+    func testSupersededGenerationFailureCannotCancelReplacement() async throws {
+        let runtime = runtime()
+        let speech = SupersededFailingSpeech()
+        let coordinator = VoiceSessionCoordinator(
+            input: FakeVoiceInput(),
+            speech: speech,
+            runtime: runtime
+        )
+
+        let first = Task {
+            try await coordinator.speakCounterpart("Old response")
+        }
+
+        while await runtime.state.conversation.turnState != .counterpartSpeaking {
+            await Task.yield()
+        }
+
+        try await coordinator.speakCounterpart("Replacement response")
+
+        do {
+            try await first.value
+            XCTFail("Expected superseded playback to report its transport failure")
+        } catch {}
+
+        let spoken = await speech.spoken
+        let state = await runtime.state
+        XCTAssertEqual(spoken, ["Old response", "Replacement response"])
         XCTAssertEqual(state.conversation.turnState, .idle)
     }
 
