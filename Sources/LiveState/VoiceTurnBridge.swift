@@ -5,11 +5,11 @@ import Foundation
 /// only a non-empty final transcript can become a user turn.
 public struct VoiceTurnBridge: Equatable, Sendable {
     public private(set) var input: VoiceInputState
-    private var activeUtteranceFinal: String?
+    private var pendingUtteranceFinal: String?
 
     public init(input: VoiceInputState = .init()) {
         self.input = input
-        self.activeUtteranceFinal = nil
+        self.pendingUtteranceFinal = nil
     }
 
     public mutating func receive(
@@ -22,25 +22,28 @@ public struct VoiceTurnBridge: Equatable, Sendable {
 
         switch event {
         case .speechStarted:
-            activeUtteranceFinal = nil
+            pendingUtteranceFinal = nil
             return [.userSpeechStarted]
 
         case let .transcript(transcript):
             guard transcript.isFinal else { return [] }
             let text = transcript.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return [] }
-            guard activeUtteranceFinal != text else { return [] }
-            activeUtteranceFinal = text
-            return [.userSubmitted(text)]
+            pendingUtteranceFinal = text
+            return []
 
         case .speechEnded:
-            return [.userSpeechEnded]
+            guard let text = pendingUtteranceFinal else {
+                return [.userSpeechEnded]
+            }
+            pendingUtteranceFinal = nil
+            return [.userSubmitted(text), .userSpeechEnded]
 
         case .silenceStarted:
             return [.userSilenceStarted]
 
         case .interruptedCounterpart:
-            activeUtteranceFinal = nil
+            pendingUtteranceFinal = nil
             guard encounter.conversation.turnState == .counterpartSpeaking else {
                 return [.userSpeechStarted]
             }
