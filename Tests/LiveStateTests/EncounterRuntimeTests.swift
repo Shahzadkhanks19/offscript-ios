@@ -150,6 +150,7 @@ private actor FailOnKindEventStore: EventStore {
 private actor MemoryRuntimeJournal: RuntimeJournal {
     private(set) var events: [EventRecord] = []
     private(set) var intents: [UUID: DurableEffectIntent] = [:]
+    private var results: [UUID: SimulationEvent] = [:]
     private var completedIntentIDs: Set<UUID> = []
 
     func commit(
@@ -202,6 +203,25 @@ private actor MemoryRuntimeJournal: RuntimeJournal {
     func markCompleted(intentID: UUID) async throws {
         intents.removeValue(forKey: intentID)
         completedIntentIDs.insert(intentID)
+        results.removeValue(forKey: intentID)
+    }
+
+    func result(for intentID: UUID) async throws -> SimulationEvent? {
+        results[intentID]
+    }
+
+    func saveResult(_ event: SimulationEvent, for intentID: UUID) async throws {
+        guard let intent = intents[intentID] else {
+            throw RuntimeJournalError.resultForUnknownIntent(intentID: intentID)
+        }
+        try DurableResultValidator.validate(event, for: intent)
+        if let existing = results[intentID] {
+            guard existing == event else {
+                throw RuntimeJournalError.resultConflict(intentID: intentID)
+            }
+            return
+        }
+        results[intentID] = event
     }
 }
 
@@ -244,6 +264,7 @@ private actor IdempotentCheckpointStore: CheckpointStore {
 private actor FailOnceCompletionRuntimeJournal: RuntimeJournal {
     private(set) var events: [EventRecord] = []
     private(set) var intents: [UUID: DurableEffectIntent] = [:]
+    private var results: [UUID: SimulationEvent] = [:]
     private var completedIntentIDs: Set<UUID> = []
     private var shouldFailCompletion = true
 
@@ -275,6 +296,25 @@ private actor FailOnceCompletionRuntimeJournal: RuntimeJournal {
         }
         intents.removeValue(forKey: intentID)
         completedIntentIDs.insert(intentID)
+        results.removeValue(forKey: intentID)
+    }
+
+    func result(for intentID: UUID) async throws -> SimulationEvent? {
+        results[intentID]
+    }
+
+    func saveResult(_ event: SimulationEvent, for intentID: UUID) async throws {
+        guard let intent = intents[intentID] else {
+            throw RuntimeJournalError.resultForUnknownIntent(intentID: intentID)
+        }
+        try DurableResultValidator.validate(event, for: intent)
+        if let existing = results[intentID] {
+            guard existing == event else {
+                throw RuntimeJournalError.resultConflict(intentID: intentID)
+            }
+            return
+        }
+        results[intentID] = event
     }
 }
 
@@ -323,9 +363,10 @@ private actor ResultCachingRuntimeJournal: RuntimeJournal {
     }
 
     func saveResult(_ event: SimulationEvent, for intentID: UUID) async throws {
-        guard intents[intentID] != nil else {
+        guard let intent = intents[intentID] else {
             throw RuntimeJournalError.resultForUnknownIntent(intentID: intentID)
         }
+        try DurableResultValidator.validate(event, for: intent)
         if let existing = results[intentID] {
             guard existing == event else {
                 throw RuntimeJournalError.resultConflict(intentID: intentID)
