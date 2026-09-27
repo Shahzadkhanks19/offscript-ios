@@ -10,6 +10,34 @@ private actor FakeVoiceInput: VoiceInputService {
     func stop() async { stops += 1 }
 }
 
+private actor StreamingVoiceInput: VoiceInputService {
+    private var continuation: AsyncThrowingStream<VoiceInputEvent, Error>.Continuation?
+    private(set) var starts = 0
+    private(set) var stops = 0
+
+    func events() async -> AsyncThrowingStream<VoiceInputEvent, Error> {
+        AsyncThrowingStream { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func start() async throws { starts += 1 }
+
+    func stop() async {
+        stops += 1
+        continuation?.finish()
+        continuation = nil
+    }
+
+    func yield(_ event: VoiceInputEvent) { continuation?.yield(event) }
+    func fail(_ error: Error) {
+        continuation?.finish(throwing: error)
+        continuation = nil
+    }
+}
+
+private enum VoiceStreamTestError: Error { case failed }
+
 private actor FakeSpeech: CounterpartSpeechService {
     private(set) var spoken: [String] = []
     private(set) var stops = 0
@@ -290,6 +318,37 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let state = await runtime.state
         XCTAssertEqual(spoken, ["Old response", "Replacement response"])
         XCTAssertEqual(state.conversation.turnState, .idle)
+    }
+
+    func testStopTerminatesLongLivedInputStream() async throws {
+        let input = StreamingVoiceInput()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: FakeSpeech(), runtime: runtime())
+
+        let session = Task { try await coordinator.start() }
+        while await input.starts == 0 { await Task.yield() }
+
+        await coordinator.stop()
+        try await session.value
+
+        let stops = await input.stops
+        XCTAssertEqual(stops, 1)
+    }
+
+    func testUnexpectedInputStreamFailureStopsOwnedRun() async {
+        let input = StreamingVoiceInput()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: FakeSpeech(), runtime: runtime())
+
+        let session = Task { try await coordinator.start() }
+        while await input.starts == 0 { await Task.yield() }
+        await input.fail(VoiceStreamTestError.failed)
+
+        do {
+            try await session.value
+            XCTFail("Expected stream failure")
+        } catch {}
+
+        let stops = await input.stops
+        XCTAssertEqual(stops, 1)
     }
 
     func testStopStopsBothVoiceDirections() async {
