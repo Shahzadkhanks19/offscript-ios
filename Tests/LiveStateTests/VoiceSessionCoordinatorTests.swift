@@ -67,6 +67,19 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(state.conversation.turnState, .userSpeaking)
     }
 
+    func testCounterpartSpeechLifecycleReturnsToIdle() async throws {
+        let runtime = runtime()
+        let speech = FakeSpeech()
+        let coordinator = VoiceSessionCoordinator(input: FakeVoiceInput(), speech: speech, runtime: runtime)
+
+        try await coordinator.speakCounterpart("Opening question")
+
+        let spoken = await speech.spoken
+        let state = await runtime.state
+        XCTAssertEqual(spoken, ["Opening question"])
+        XCTAssertEqual(state.conversation.turnState, .idle)
+    }
+
     func testStopStopsBothVoiceDirections() async {
         let input = FakeVoiceInput()
         let speech = FakeSpeech()
