@@ -15,6 +15,8 @@ public struct VoiceActivityGate: Equatable, Sendable {
     private var speechActive = false
     private var silenceEmitted = false
     private var bargeInEmitted = false
+    private var speechStartEmitted = false
+    private var beganWhileCounterpartSpeaking = false
 
     public init(policy: VoiceActivityPolicy = .init()) {
         self.policy = policy
@@ -26,20 +28,23 @@ public struct VoiceActivityGate: Equatable, Sendable {
     ) -> [VoiceInputEvent] {
         switch observation {
         case .speechBegan:
-            let shouldEmitStart = !speechActive
+            guard !speechActive else { return [] }
             speechActive = true
             silenceEmitted = false
             bargeInEmitted = false
-            return shouldEmitStart ? [.speechStarted] : []
+            beganWhileCounterpartSpeaking = counterpartIsSpeaking
+            speechStartEmitted = !counterpartIsSpeaking
+            return speechStartEmitted ? [.speechStarted] : []
 
         case let .speechDuration(milliseconds):
             guard speechActive, !bargeInEmitted else { return [] }
             guard VoiceActivityEngine.speechDecision(
                 durationMilliseconds: milliseconds,
-                counterpartIsSpeaking: counterpartIsSpeaking,
+                counterpartIsSpeaking: beganWhileCounterpartSpeaking || counterpartIsSpeaking,
                 policy: policy
             ) == .bargeIn else { return [] }
             bargeInEmitted = true
+            speechStartEmitted = true
             return [.interruptedCounterpart]
 
         case let .silenceDuration(milliseconds):
@@ -55,7 +60,10 @@ public struct VoiceActivityGate: Equatable, Sendable {
             guard speechActive else { return [] }
             speechActive = false
             bargeInEmitted = false
-            return [.speechEnded]
+            beganWhileCounterpartSpeaking = false
+            let shouldEmitEnd = speechStartEmitted
+            speechStartEmitted = false
+            return shouldEmitEnd ? [.speechEnded] : []
         }
     }
 }
