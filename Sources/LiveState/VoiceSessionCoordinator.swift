@@ -79,6 +79,13 @@ public actor VoiceSessionCoordinator {
 
         speechGeneration &+= 1
         let generation = speechGeneration
+
+        let beforeStart = await runtime.state
+        if beforeStart.conversation.turnState == .counterpartSpeaking {
+            await speech.stop()
+            guard generation == speechGeneration else { return }
+        }
+
         _ = try await runtime.send(.counterpartSpeechStarted)
         do {
             try await speech.speak(text)
