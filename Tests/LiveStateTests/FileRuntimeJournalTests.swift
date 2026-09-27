@@ -47,12 +47,12 @@ final class FileRuntimeJournalTests: XCTestCase {
         journal = nil
 
         let reopened = try FileRuntimeJournal(fileURL: url)
-        XCTAssertEqual(try await reopened.records(encounterID: state.id), [record])
-        XCTAssertEqual(
-            try await reopened.pendingIntents(encounterID: state.id).map(\.id),
-            [intent.id]
-        )
-        XCTAssertEqual(try await reopened.result(for: intent.id), result)
+        let records = try await reopened.records(encounterID: state.id)
+        let pendingIDs = try await reopened.pendingIntents(encounterID: state.id).map(\.id)
+        let cachedResult = try await reopened.result(for: intent.id)
+        XCTAssertEqual(records, [record])
+        XCTAssertEqual(pendingIDs, [intent.id])
+        XCTAssertEqual(cachedResult, result)
     }
 
     func testCompletionPersistsAndRemovesCachedResultAcrossReopen() async throws {
@@ -90,12 +90,12 @@ final class FileRuntimeJournalTests: XCTestCase {
         journal = nil
 
         let reopened = try FileRuntimeJournal(fileURL: url)
-        XCTAssertEqual(
-            try await reopened.records(encounterID: state.id),
-            [firstRecord, resultRecord]
-        )
-        XCTAssertTrue(try await reopened.pendingIntents(encounterID: state.id).isEmpty)
-        XCTAssertNil(try await reopened.result(for: intent.id))
+        let records = try await reopened.records(encounterID: state.id)
+        let pending = try await reopened.pendingIntents(encounterID: state.id)
+        let cachedResult = try await reopened.result(for: intent.id)
+        XCTAssertEqual(records, [firstRecord, resultRecord])
+        XCTAssertTrue(pending.isEmpty)
+        XCTAssertNil(cachedResult)
 
         do {
             try await reopened.saveResult(result, for: intent.id)
@@ -141,6 +141,7 @@ final class FileRuntimeJournalTests: XCTestCase {
         }
 
         let reopened = try FileRuntimeJournal(fileURL: url)
-        XCTAssertEqual(try await reopened.records(encounterID: state.id), [first])
+        let records = try await reopened.records(encounterID: state.id)
+        XCTAssertEqual(records, [first])
     }
 }
