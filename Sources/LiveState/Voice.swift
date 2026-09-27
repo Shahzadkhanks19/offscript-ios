@@ -84,7 +84,7 @@ public enum VoiceInputReducer {
 }
 
 public protocol VoiceInputService: Sendable {
-    func events() -> AsyncThrowingStream<VoiceInputEvent, Error>
+    func events() async -> AsyncThrowingStream<VoiceInputEvent, Error>
     func start() async throws
     func stop() async
 }
