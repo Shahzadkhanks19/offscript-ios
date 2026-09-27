@@ -7,6 +7,7 @@ public actor VoiceSessionCoordinator {
     private var bridge: VoiceTurnBridge
     private var activityGate: VoiceActivityGate
     private var isRunning = false
+    private var speechGeneration: UInt64 = 0
 
     public init(
         input: any VoiceInputService,
@@ -42,6 +43,7 @@ public actor VoiceSessionCoordinator {
 
     public func stop() async {
         isRunning = false
+        speechGeneration &+= 1
         await input.stop()
         await speech.stop()
     }
@@ -50,6 +52,7 @@ public actor VoiceSessionCoordinator {
         let before = await runtime.state
         let events = bridge.receive(inputEvent, encounter: before)
         if inputEvent == .interruptedCounterpart, before.conversation.turnState == .counterpartSpeaking {
+            speechGeneration &+= 1
             await speech.stop()
         }
         for event in events {
@@ -74,11 +77,15 @@ public actor VoiceSessionCoordinator {
         let current = await runtime.state
         guard current.lifecycle == .active else { return }
 
+        speechGeneration &+= 1
+        let generation = speechGeneration
         _ = try await runtime.send(.counterpartSpeechStarted)
         do {
             try await speech.speak(text)
+            guard generation == speechGeneration else { return }
             _ = try await runtime.send(.counterpartSpeechFinished)
         } catch {
+            guard generation == speechGeneration else { throw error }
             _ = try? await runtime.send(.counterpartSpeechCancelled)
             throw error
         }
