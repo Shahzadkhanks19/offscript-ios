@@ -166,8 +166,19 @@ public actor FileRuntimeJournal: RuntimeJournal {
         )
 
         do {
+            // The temporary file lives beside the destination so the final
+            // rename stays on the same volume. Foundation's replaceItemAt is
+            // not implemented on Windows, so use POSIX-style rename where
+            // available; Windows falls back to remove + move. The snapshot is
+            // still fully encoded before the destination is touched.
             try data.write(to: temporaryURL, options: .atomic)
 
+            #if os(Windows)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try FileManager.default.removeItem(at: fileURL)
+            }
+            try FileManager.default.moveItem(at: temporaryURL, to: fileURL)
+            #else
             if FileManager.default.fileExists(atPath: fileURL.path) {
                 _ = try FileManager.default.replaceItemAt(
                     fileURL,
@@ -176,6 +187,7 @@ public actor FileRuntimeJournal: RuntimeJournal {
             } else {
                 try FileManager.default.moveItem(at: temporaryURL, to: fileURL)
             }
+            #endif
         } catch {
             try? FileManager.default.removeItem(at: temporaryURL)
             throw error
