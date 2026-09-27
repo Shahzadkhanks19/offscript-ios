@@ -38,6 +38,40 @@ private actor StreamingVoiceInput: VoiceInputService {
 
 private enum VoiceStreamTestError: Error { case failed }
 
+private actor RestartableVoiceInput: VoiceInputService {
+    private var continuations: [Int: AsyncThrowingStream<VoiceInputEvent, Error>.Continuation] = [:]
+    private var nextStreamID = 0
+    private(set) var starts = 0
+    private(set) var stops = 0
+
+    func events() async -> AsyncThrowingStream<VoiceInputEvent, Error> {
+        let id = nextStreamID
+        nextStreamID += 1
+        return AsyncThrowingStream { continuation in
+            continuations[id] = continuation
+        }
+    }
+
+    func start() async throws { starts += 1 }
+
+    func stop() async {
+        stops += 1
+        // Deliberately do not finish streams: this fake proves the coordinator's
+        // generation check rejects callbacks from an obsolete adapter stream.
+    }
+
+    func yield(_ event: VoiceInputEvent, streamID: Int) {
+        continuations[streamID]?.yield(event)
+    }
+
+    func finish(streamID: Int) {
+        continuations[streamID]?.finish()
+        continuations[streamID] = nil
+    }
+
+    var streamCount: Int { nextStreamID }
+}
+
 private actor FakeSpeech: CounterpartSpeechService {
     private(set) var spoken: [String] = []
     private(set) var stops = 0
@@ -349,6 +383,43 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
 
         let stops = await input.stops
         XCTAssertEqual(stops, 1)
+    }
+
+    func testRestartCreatesNewInputSessionAndRejectsObsoleteStreamCallbacks() async throws {
+        let input = RestartableVoiceInput()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: FakeSpeech(), runtime: runtime())
+
+        let first = Task { try await coordinator.start() }
+        while await input.streamCount < 1 { await Task.yield() }
+
+        await coordinator.stop()
+
+        let second = Task { try await coordinator.start() }
+        while await input.streamCount < 2 { await Task.yield() }
+
+        await input.yield(.transcript(.init(text: "obsolete", isFinal: true)), streamID: 0)
+        await Task.yield()
+
+        var state = await runtime.state
+        XCTAssertTrue(state.conversation.turns.isEmpty)
+
+        await input.yield(.speechStarted, streamID: 1)
+        await input.yield(.transcript(.init(text: "current", isFinal: true)), streamID: 1)
+
+        while await runtime.state.user.totalTurns < 1 { await Task.yield() }
+        state = await runtime.state
+        XCTAssertEqual(state.user.totalTurns, 1)
+        XCTAssertEqual(state.conversation.turns.last?.text, "current")
+
+        await input.finish(streamID: 0)
+        try await first.value
+        await coordinator.stop()
+        await input.finish(streamID: 1)
+        try await second.value
+
+        let starts = await input.starts
+        XCTAssertEqual(starts, 2)
     }
 
     func testStopStopsBothVoiceDirections() async {
