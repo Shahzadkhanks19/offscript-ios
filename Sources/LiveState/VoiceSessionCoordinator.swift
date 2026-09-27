@@ -5,13 +5,21 @@ public actor VoiceSessionCoordinator {
     private let speech: any CounterpartSpeechService
     private let runtime: EncounterRuntime
     private var bridge: VoiceTurnBridge
+    private var activityGate: VoiceActivityGate
     private var isRunning = false
 
-    public init(input: any VoiceInputService, speech: any CounterpartSpeechService, runtime: EncounterRuntime, bridge: VoiceTurnBridge = .init()) {
+    public init(
+        input: any VoiceInputService,
+        speech: any CounterpartSpeechService,
+        runtime: EncounterRuntime,
+        bridge: VoiceTurnBridge = .init(),
+        activityGate: VoiceActivityGate = .init()
+    ) {
         self.input = input
         self.speech = speech
         self.runtime = runtime
         self.bridge = bridge
+        self.activityGate = activityGate
     }
 
     public func start() async throws {
@@ -46,6 +54,19 @@ public actor VoiceSessionCoordinator {
         }
         for event in events {
             _ = try await runtime.send(event)
+        }
+    }
+
+    /// Accepts raw VAD observations and derives semantic voice events using
+    /// authoritative encounter state rather than platform-owned assumptions.
+    public func handleActivity(_ observation: VoiceActivityObservation) async throws {
+        let state = await runtime.state
+        let events = activityGate.receive(
+            observation,
+            counterpartIsSpeaking: state.conversation.turnState == .counterpartSpeaking
+        )
+        for event in events {
+            try await handle(event)
         }
     }
 
