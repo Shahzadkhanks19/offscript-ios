@@ -7,6 +7,7 @@ public actor VoiceSessionCoordinator {
     private var bridge: VoiceTurnBridge
     private var activityGate: VoiceActivityGate
     private var isRunning = false
+    private var runGeneration: UInt64 = 0
     private var speechGeneration: UInt64 = 0
 
     public init(
@@ -26,24 +27,46 @@ public actor VoiceSessionCoordinator {
     public func start() async throws {
         guard !isRunning else { return }
         isRunning = true
+        runGeneration &+= 1
+        let generation = runGeneration
+
         do {
             try await input.start()
+            guard isRunning, generation == runGeneration else {
+                await input.stop()
+                return
+            }
+
             let stream = await input.events()
             for try await event in stream {
-                guard isRunning else { break }
+                guard isRunning, generation == runGeneration else { break }
                 try await handle(event)
             }
         } catch {
-            isRunning = false
-            await input.stop()
+            let ownsRun = generation == runGeneration
+            if ownsRun {
+                isRunning = false
+                runGeneration &+= 1
+                await input.stop()
+            }
             throw error
         }
+
+        guard generation == runGeneration else { return }
         isRunning = false
+        runGeneration &+= 1
         await input.stop()
     }
 
     public func stop() async {
+        guard isRunning else {
+            speechGeneration &+= 1
+            await speech.stop()
+            return
+        }
+
         isRunning = false
+        runGeneration &+= 1
         speechGeneration &+= 1
         await input.stop()
         await speech.stop()
