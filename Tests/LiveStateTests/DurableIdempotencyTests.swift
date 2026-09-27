@@ -52,6 +52,7 @@ private actor IntentRecordingJournal: RuntimeJournal {
         }
         if let intentID {
             pending.removeValue(forKey: intentID)
+            results.removeValue(forKey: intentID)
         }
         for intent in intents {
             if pending[intent.id] == nil {
