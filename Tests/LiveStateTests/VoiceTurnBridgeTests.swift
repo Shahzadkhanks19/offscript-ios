@@ -15,16 +15,22 @@ final class VoiceTurnBridgeTests: XCTestCase {
         XCTAssertEqual(bridge.input.partialTranscript, "still speaking")
     }
 
-    func testFinalTranscriptBecomesUserSubmission() {
+    func testFinalTranscriptBecomesUserSubmissionAtSpeechEnd() {
         var bridge = VoiceTurnBridge()
         let state = EncounterState(lifecycle: .active)
 
-        let events = bridge.receive(
-            .transcript(.init(text: "  We chose SSR.  ", isFinal: true)),
-            encounter: state
+        _ = bridge.receive(.speechStarted, encounter: state)
+        XCTAssertTrue(
+            bridge.receive(
+                .transcript(.init(text: "  We chose SSR.  ", isFinal: true)),
+                encounter: state
+            ).isEmpty
         )
 
-        XCTAssertEqual(events, [.userSubmitted("We chose SSR.")])
+        XCTAssertEqual(
+            bridge.receive(.speechEnded, encounter: state),
+            [.userSubmitted("We chose SSR."), .userSpeechEnded]
+        )
     }
 
     func testBargeInWhileCounterpartSpeaksProducesOrderedEvents() {
