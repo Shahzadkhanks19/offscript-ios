@@ -57,6 +57,27 @@ public actor EncounterRuntime {
         )
     }
 
+    /// Rebuilds authoritative state directly from the durable journal. This is
+    /// the preferred recovery path in journal mode: callers do not separately
+    /// load or supply an event stream that could diverge from the outbox store.
+    public static func recovering(
+        initial: EncounterState,
+        runner: EffectRunner,
+        journal: any RuntimeJournal
+    ) async throws -> EncounterRuntime {
+        let records = try await journal.records(encounterID: initial.id)
+        let recoveredState = try ReplayEngine.validatedReplay(
+            initial: initial,
+            records: records
+        )
+        return EncounterRuntime(
+            state: recoveredState,
+            pendingEffects: [],
+            runner: runner,
+            journal: journal
+        )
+    }
+
     @discardableResult
     public func send(_ event: SimulationEvent) async throws -> EncounterState {
         if journal == nil {
@@ -85,10 +106,10 @@ public actor EncounterRuntime {
                 produced = cached
             } else {
                 produced = try await runner.run(
-                    intent.payload.effect,
-                    state: intent.state,
-                    idempotencyKey: intent.id
-                )
+                            intent.payload.effect,
+                            state: intent.state,
+                            idempotencyKey: intent.id
+                        )
                 if let produced {
                     try await journal.saveResult(produced, for: intent.id)
                 }
