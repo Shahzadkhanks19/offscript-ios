@@ -26,6 +26,13 @@ final class VoiceActivityGateTests: XCTestCase {
         XCTAssertTrue(gate.receive(.speechDuration(milliseconds: 300), counterpartIsSpeaking: true).isEmpty)
     }
 
+    func testPotentialBargeInDoesNotStealTurnBeforeThreshold() {
+        var gate = VoiceActivityGate(policy: .init(bargeInMilliseconds: 180))
+        XCTAssertTrue(gate.receive(.speechBegan, counterpartIsSpeaking: true).isEmpty)
+        XCTAssertTrue(gate.receive(.speechDuration(milliseconds: 179), counterpartIsSpeaking: true).isEmpty)
+        XCTAssertTrue(gate.receive(.speechEnded, counterpartIsSpeaking: true).isEmpty)
+    }
+
     func testSpeechDoesNotBecomeBargeInWhenCounterpartIsNotSpeaking() {
         var gate = VoiceActivityGate(policy: .init(bargeInMilliseconds: 180))
         _ = gate.receive(.speechBegan, counterpartIsSpeaking: false)
