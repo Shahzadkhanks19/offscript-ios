@@ -84,6 +84,7 @@ public enum RuntimeJournalError: Error, Equatable, Sendable {
     case intentConflict(id: UUID)
     case resultConflict(intentID: UUID)
     case resultForUnknownIntent(intentID: UUID)
+    case invalidResult(intentID: UUID)
 }
 
 /// Storage contract for the transactional event journal + durable outbox.
@@ -106,11 +107,40 @@ public protocol RuntimeJournal: Sendable {
     /// Implementations must key results by intent ID, reject a different result
     /// for the same intent, and remove the cached result when that intent is
     /// completed. Saving a result for an unknown/completed intent must fail.
+    /// Implementations must also validate that the event is a legal result for
+    /// the referenced intent payload before accepting it.
     func result(for intentID: UUID) async throws -> SimulationEvent?
     func saveResult(_ event: SimulationEvent, for intentID: UUID) async throws
 }
 
-public extension RuntimeJournal {
-    func result(for intentID: UUID) async throws -> SimulationEvent? { nil }
-    func saveResult(_ event: SimulationEvent, for intentID: UUID) async throws {}
+/// Central validation for durable result ownership. Journals should call this
+/// before caching a produced event so an intent cannot accidentally own a
+/// result belonging to another effect or turn.
+public enum DurableResultValidator {
+    public static func isValid(
+        _ event: SimulationEvent,
+        for intent: DurableEffectIntent
+    ) -> Bool {
+        switch (intent.payload, event) {
+        case let (.dispatchEvent(expected), actual):
+            return expected == actual
+        case let (.evaluateAnswer(expectedTurnID, _), .answerEvaluated(actualTurnID, _)):
+            return expectedTurnID == actualTurnID
+        case (.requestCounterpartAction, .counterpartResponded):
+            return true
+        case (.persistCheckpoint, _):
+            return false
+        default:
+            return false
+        }
+    }
+
+    public static func validate(
+        _ event: SimulationEvent,
+        for intent: DurableEffectIntent
+    ) throws {
+        guard isValid(event, for: intent) else {
+            throw RuntimeJournalError.invalidResult(intentID: intent.id)
+        }
+    }
 }
