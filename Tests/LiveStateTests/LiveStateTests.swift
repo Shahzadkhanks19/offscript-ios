@@ -788,4 +788,31 @@ final class LiveStateTests: XCTestCase {
         XCTAssertTrue(intents.isEmpty)
     }
 
+
+    func testLegacyScenarioWithoutDomainMigratesToInterview() throws {
+        let original = ScenarioState(
+            domain: .interview,
+            title: "Legacy Interview",
+            role: "Frontend Developer",
+            company: "Example",
+            phase: "technical",
+            knowledge: .init()
+        )
+        let encoded = try JSONEncoder().encode(original)
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        object.removeValue(forKey: "domain")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(ScenarioState.self, from: legacyData)
+
+        XCTAssertEqual(decoded.domain, .interview)
+        XCTAssertEqual(decoded.title, original.title)
+        XCTAssertEqual(decoded.role, original.role)
+        XCTAssertEqual(decoded.company, original.company)
+        XCTAssertEqual(decoded.phase, original.phase)
+        XCTAssertEqual(decoded.knowledge, original.knowledge)
+    }
+
 }
