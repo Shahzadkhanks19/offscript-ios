@@ -80,6 +80,50 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(state.conversation.turnState, .idle)
     }
 
+    func testRawActivityUsesAuthoritativeStateForBargeIn() async throws {
+        var initial = EncounterState(lifecycle: .active)
+        initial.conversation.turnState = .counterpartSpeaking
+        let runtime = runtime(initial)
+        let speech = FakeSpeech()
+        let coordinator = VoiceSessionCoordinator(
+            input: FakeVoiceInput(),
+            speech: speech,
+            runtime: runtime,
+            activityGate: .init(policy: .init(bargeInMilliseconds: 180))
+        )
+
+        try await coordinator.handleActivity(.speechBegan)
+        try await coordinator.handleActivity(.speechDuration(milliseconds: 179))
+        let beforeThresholdStops = await speech.stops
+        XCTAssertEqual(beforeThresholdStops, 0)
+
+        try await coordinator.handleActivity(.speechDuration(milliseconds: 180))
+        let stops = await speech.stops
+        let state = await runtime.state
+        XCTAssertEqual(stops, 1)
+        XCTAssertEqual(state.user.interruptions, 1)
+        XCTAssertEqual(state.conversation.turnState, .userSpeaking)
+    }
+
+    func testRawActivityMeaningfulSilenceFlowsIntoLiveState() async throws {
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(
+            input: FakeVoiceInput(),
+            speech: FakeSpeech(),
+            runtime: runtime,
+            activityGate: .init(policy: .init(meaningfulSilenceMilliseconds: 900))
+        )
+
+        try await coordinator.handleActivity(.speechBegan)
+        try await coordinator.handleActivity(.silenceDuration(milliseconds: 899))
+        var state = await runtime.state
+        XCTAssertEqual(state.conversation.turnState, .userSpeaking)
+
+        try await coordinator.handleActivity(.silenceDuration(milliseconds: 900))
+        state = await runtime.state
+        XCTAssertEqual(state.conversation.turnState, .silence)
+    }
+
     func testStopStopsBothVoiceDirections() async {
         let input = FakeVoiceInput()
         let speech = FakeSpeech()
