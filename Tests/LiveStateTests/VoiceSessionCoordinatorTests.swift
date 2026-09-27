@@ -3,7 +3,9 @@ import XCTest
 
 private actor FakeVoiceInput: VoiceInputService {
     private(set) var stops = 0
-    func events() -> AsyncThrowingStream<VoiceInputEvent, Error> { AsyncThrowingStream { $0.finish() } }
+    nonisolated func events() -> AsyncThrowingStream<VoiceInputEvent, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
     func start() async throws {}
     func stop() async { stops += 1 }
 }
