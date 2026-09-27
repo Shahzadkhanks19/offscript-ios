@@ -47,7 +47,15 @@ public struct EffectRunner: Sendable {
         self.events = events
     }
 
-    public func run(_ effect: SimulationEffect, state: EncounterState) async throws -> SimulationEvent? {
+    /// Executes an effect. Durable journal callers pass the intent ID as the
+    /// canonical idempotency key so the outbox operation and external request
+    /// share one stable identity across retries and process restarts. Legacy
+    /// callers fall back to a deterministic key derived from encounter state.
+    public func run(
+        _ effect: SimulationEffect,
+        state: EncounterState,
+        idempotencyKey: UUID? = nil
+    ) async throws -> SimulationEvent? {
         switch effect {
         case let .dispatchEvent(event):
             return event
@@ -58,7 +66,7 @@ public struct EffectRunner: Sendable {
                     turnID: turnID,
                     text: text,
                     context: EvaluationContext(state: state),
-                    idempotencyKey: Determinism.id(
+                    idempotencyKey: idempotencyKey ?? Determinism.id(
                         encounterID: state.id,
                         sequence: state.sequence,
                         domain: "evaluation|\(turnID.uuidString.lowercased())"
@@ -70,7 +78,7 @@ public struct EffectRunner: Sendable {
                 try await counterpart.respond(
                     to: action,
                     context: CounterpartContext(state: state),
-                    idempotencyKey: Determinism.id(
+                    idempotencyKey: idempotencyKey ?? Determinism.id(
                         encounterID: state.id,
                         sequence: state.sequence,
                         domain: "counterpart|\(String(describing: action))"
