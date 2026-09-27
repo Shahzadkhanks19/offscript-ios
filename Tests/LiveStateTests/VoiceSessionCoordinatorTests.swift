@@ -47,8 +47,10 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let runtime = runtime()
         let coordinator = VoiceSessionCoordinator(input: FakeVoiceInput(), speech: FakeSpeech(), runtime: runtime)
         try await coordinator.handle(.transcript(.init(text: "partial", isFinal: false)))
-        XCTAssertTrue(await runtime.state.conversation.turns.isEmpty)
-        XCTAssertEqual(await coordinator.voiceState.partialTranscript, "partial")
+        let state = await runtime.state
+        let voiceState = await coordinator.voiceState
+        XCTAssertTrue(state.conversation.turns.isEmpty)
+        XCTAssertEqual(voiceState.partialTranscript, "partial")
     }
 
     func testBargeInStopsSpeechAndMovesToUserSpeaking() async throws {
@@ -58,7 +60,8 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let speech = FakeSpeech()
         let coordinator = VoiceSessionCoordinator(input: FakeVoiceInput(), speech: speech, runtime: runtime)
         try await coordinator.handle(.interruptedCounterpart)
-        XCTAssertEqual(await speech.stops, 1)
+        let speechStops = await speech.stops
+        XCTAssertEqual(speechStops, 1)
         let state = await runtime.state
         XCTAssertEqual(state.user.interruptions, 1)
         XCTAssertEqual(state.conversation.turnState, .userSpeaking)
@@ -69,7 +72,9 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let speech = FakeSpeech()
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime())
         await coordinator.stop()
-        XCTAssertEqual(await input.stops, 1)
-        XCTAssertEqual(await speech.stops, 1)
+        let inputStops = await input.stops
+        let speechStops = await speech.stops
+        XCTAssertEqual(inputStops, 1)
+        XCTAssertEqual(speechStops, 1)
     }
 }
