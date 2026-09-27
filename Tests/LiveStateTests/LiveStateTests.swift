@@ -815,4 +815,29 @@ final class LiveStateTests: XCTestCase {
         XCTAssertEqual(decoded.knowledge, original.knowledge)
     }
 
+
+    func testValidatedReplayRejectsNonPositiveSchemaVersion() {
+        let encounterID = UUID()
+        let initial = EncounterState(id: encounterID)
+        for invalidVersion in [0, -1] {
+            let record = EventRecord(
+                id: UUID(),
+                schemaVersion: invalidVersion,
+                encounterID: encounterID,
+                branchID: initial.activeBranchID,
+                sequence: 1,
+                timestamp: Determinism.timestamp(sequence: 1),
+                event: .preparationStarted
+            )
+            XCTAssertThrowsError(
+                try ReplayEngine.validatedReplay(initial: initial, records: [record])
+            ) {
+                XCTAssertEqual(
+                    $0 as? ReplayValidationError,
+                    .invalidSchema(found: invalidVersion, minimum: 1)
+                )
+            }
+        }
+    }
+
 }
