@@ -85,6 +85,7 @@ public enum RuntimeJournalError: Error, Equatable, Sendable {
     case resultConflict(intentID: UUID)
     case resultForUnknownIntent(intentID: UUID)
     case invalidResult(intentID: UUID)
+    case transactionConflict(eventID: UUID)
 }
 
 /// Storage contract for the transactional event journal + durable outbox.
@@ -114,6 +115,27 @@ public protocol RuntimeJournal: Sendable {
     /// the referenced intent payload before accepting it.
     func result(for intentID: UUID) async throws -> SimulationEvent?
     func saveResult(_ event: SimulationEvent, for intentID: UUID) async throws
+}
+
+public struct RuntimeJournalTransaction: Equatable, Sendable, Codable {
+    public let event: EventRecord
+    public let intents: [DurableEffectIntent]
+    public let completingIntentID: UUID?
+
+    public init(
+        event: EventRecord,
+        intents: [DurableEffectIntent],
+        completingIntentID: UUID?
+    ) {
+        self.event = event
+        self.intents = intents.sorted {
+            if $0.originatingSequence == $1.originatingSequence {
+                return $0.effectIndex < $1.effectIndex
+            }
+            return $0.originatingSequence < $1.originatingSequence
+        }
+        self.completingIntentID = completingIntentID
+    }
 }
 
 /// Central validation for durable result ownership. Journals should call this
