@@ -244,11 +244,11 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
 
         try await coordinator.handleActivity(.speechBegan)
         try await coordinator.handleActivity(.silenceDuration(milliseconds: 899))
-        var state = await encounterRuntime.state
+        var state = await runtime.state
         XCTAssertEqual(state.conversation.turnState, .userSpeaking)
 
         try await coordinator.handleActivity(.silenceDuration(milliseconds: 900))
-        state = await encounterRuntime.state
+        state = await runtime.state
         XCTAssertEqual(state.conversation.turnState, .silence)
     }
 
