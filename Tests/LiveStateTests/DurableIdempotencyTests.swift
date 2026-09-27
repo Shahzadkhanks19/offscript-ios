@@ -37,6 +37,7 @@ private actor IntentKeyEventStore: EventStore {
 }
 
 private actor IntentRecordingJournal: RuntimeJournal {
+    private var events: [EventRecord] = []
     private var pending: [UUID: DurableEffectIntent] = [:]
     private var results: [UUID: SimulationEvent] = [:]
     private(set) var created: [DurableEffectIntent] = []
@@ -46,6 +47,9 @@ private actor IntentRecordingJournal: RuntimeJournal {
         intents: [DurableEffectIntent],
         completing intentID: UUID?
     ) async throws {
+        if !events.contains(where: { $0.id == event.id }) {
+            events.append(event)
+        }
         if let intentID {
             pending.removeValue(forKey: intentID)
         }
@@ -55,6 +59,11 @@ private actor IntentRecordingJournal: RuntimeJournal {
             }
             pending[intent.id] = intent
         }
+    }
+
+    func records(encounterID: UUID) async throws -> [EventRecord] {
+        events.filter { $0.encounterID == encounterID }
+            .sorted { $0.sequence < $1.sequence }
     }
 
     func pendingIntents(encounterID: UUID) async throws -> [DurableEffectIntent] {
