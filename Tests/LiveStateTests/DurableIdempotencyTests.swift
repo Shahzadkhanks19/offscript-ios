@@ -38,6 +38,7 @@ private actor IntentKeyEventStore: EventStore {
 
 private actor IntentRecordingJournal: RuntimeJournal {
     private var pending: [UUID: DurableEffectIntent] = [:]
+    private var results: [UUID: SimulationEvent] = [:]
     private(set) var created: [DurableEffectIntent] = []
 
     func commit(
@@ -62,6 +63,25 @@ private actor IntentRecordingJournal: RuntimeJournal {
 
     func markCompleted(intentID: UUID) async throws {
         pending.removeValue(forKey: intentID)
+        results.removeValue(forKey: intentID)
+    }
+
+    func result(for intentID: UUID) async throws -> SimulationEvent? {
+        results[intentID]
+    }
+
+    func saveResult(_ event: SimulationEvent, for intentID: UUID) async throws {
+        guard let intent = pending[intentID] else {
+            throw RuntimeJournalError.resultForUnknownIntent(intentID: intentID)
+        }
+        try DurableResultValidator.validate(event, for: intent)
+        if let existing = results[intentID] {
+            guard existing == event else {
+                throw RuntimeJournalError.resultConflict(intentID: intentID)
+            }
+            return
+        }
+        results[intentID] = event
     }
 }
 
