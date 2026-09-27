@@ -70,6 +70,25 @@ public enum LiveStateReducer {
             }
             return .init(state: next, effects: [record])
 
+        case .counterpartSpeechStarted:
+            guard next.lifecycle == .active else { return .init(state: next, effects: [record]) }
+            next.conversation.turnState = .counterpartSpeaking
+            return .init(state: next, effects: [record])
+
+        case .counterpartSpeechFinished:
+            guard next.lifecycle == .active else { return .init(state: next, effects: [record]) }
+            if next.conversation.turnState == .counterpartSpeaking {
+                next.conversation.turnState = .idle
+            }
+            return .init(state: next, effects: [record])
+
+        case .counterpartSpeechCancelled:
+            guard next.lifecycle == .active else { return .init(state: next, effects: [record]) }
+            if next.conversation.turnState == .counterpartSpeaking || next.conversation.turnState == .overlap {
+                next.conversation.turnState = .idle
+            }
+            return .init(state: next, effects: [record])
+
         case let .userSubmitted(text):
             let turn = ConversationTurn(
                 id: Determinism.id(encounterID: state.id, sequence: next.sequence, domain: "user-turn"),
