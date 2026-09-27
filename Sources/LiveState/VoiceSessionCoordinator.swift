@@ -59,15 +59,15 @@ public actor VoiceSessionCoordinator {
     }
 
     public func stop() async {
-        guard isRunning else {
-            speechGeneration &+= 1
-            await speech.stop()
-            return
-        }
-
+        let wasRunning = isRunning
         isRunning = false
-        runGeneration &+= 1
+        if wasRunning {
+            runGeneration &+= 1
+        }
         speechGeneration &+= 1
+
+        // Stopping is deliberately idempotent at the coordinator boundary:
+        // adapters must tolerate stop even when capture has not started.
         await input.stop()
         await speech.stop()
     }
