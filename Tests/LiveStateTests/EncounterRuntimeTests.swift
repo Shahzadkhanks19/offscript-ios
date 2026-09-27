@@ -189,6 +189,7 @@ private actor MemoryRuntimeJournal: RuntimeJournal {
         events.append(event)
         if let intentID {
             intents.removeValue(forKey: intentID)
+            results.removeValue(forKey: intentID)
             completedIntentIDs.insert(intentID)
         }
         for intent in newIntents where !completedIntentIDs.contains(intent.id) {
@@ -283,6 +284,7 @@ private actor FailOnceCompletionRuntimeJournal: RuntimeJournal {
         }
         if let intentID {
             intents.removeValue(forKey: intentID)
+            results.removeValue(forKey: intentID)
             completedIntentIDs.insert(intentID)
         }
         for intent in newIntents where !completedIntentIDs.contains(intent.id) {
