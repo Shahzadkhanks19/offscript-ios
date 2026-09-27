@@ -37,7 +37,41 @@ public struct ConversationTurn: Identifiable, Equatable, Sendable, Codable {
     }
 }
 
-public struct ScenarioState: Equatable, Sendable, Codable {\n    public var domain: EncounterDomain\n    public var title: String\n    public var role: String\n    public var company: String?\n    public var phase: String\n    public var knowledge: ScenarioKnowledge\n\n    public init(\n        domain: EncounterDomain = .interview,\n        title: String = "Frontend Developer Interview",\n        role: String = "Frontend Developer",\n        company: String? = nil,\n        phase: String = "opening",\n        knowledge: ScenarioKnowledge = .init()\n    ) {\n        self.domain = domain; self.title = title; self.role = role; self.company = company; self.phase = phase; self.knowledge = knowledge\n    }\n\n    private enum CodingKeys: String, CodingKey {\n        case domain, title, role, company, phase, knowledge\n    }\n\n    public init(from decoder: Decoder) throws {\n        let container = try decoder.container(keyedBy: CodingKeys.self)\n        // domain was introduced after the first persisted ScenarioState shape.\n        // Old snapshots were interview-only, so missing domain migrates safely.\n        domain = try container.decodeIfPresent(EncounterDomain.self, forKey: .domain) ?? .interview\n        title = try container.decode(String.self, forKey: .title)\n        role = try container.decode(String.self, forKey: .role)\n        company = try container.decodeIfPresent(String.self, forKey: .company)\n        phase = try container.decode(String.self, forKey: .phase)\n        knowledge = try container.decode(ScenarioKnowledge.self, forKey: .knowledge)\n    }\n}
+public struct ScenarioState: Equatable, Sendable, Codable {
+    public var domain: EncounterDomain
+    public var title: String
+    public var role: String
+    public var company: String?
+    public var phase: String
+    public var knowledge: ScenarioKnowledge
+
+    public init(
+        domain: EncounterDomain = .interview,
+        title: String = "Frontend Developer Interview",
+        role: String = "Frontend Developer",
+        company: String? = nil,
+        phase: String = "opening",
+        knowledge: ScenarioKnowledge = .init()
+    ) {
+        self.domain = domain; self.title = title; self.role = role; self.company = company; self.phase = phase; self.knowledge = knowledge
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case domain, title, role, company, phase, knowledge
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // domain was introduced after the first persisted ScenarioState shape.
+        // Old snapshots were interview-only, so missing domain migrates safely.
+        domain = try container.decodeIfPresent(EncounterDomain.self, forKey: .domain) ?? .interview
+        title = try container.decode(String.self, forKey: .title)
+        role = try container.decode(String.self, forKey: .role)
+        company = try container.decodeIfPresent(String.self, forKey: .company)
+        phase = try container.decode(String.self, forKey: .phase)
+        knowledge = try container.decode(ScenarioKnowledge.self, forKey: .knowledge)
+    }
+}
 
 public struct CounterpartState: Equatable, Sendable, Codable {
     public var name: String
