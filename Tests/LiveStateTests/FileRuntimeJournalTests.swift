@@ -231,7 +231,8 @@ final class FileRuntimeJournalTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let state = EncounterState(lifecycle: .active)
-        let intent = makeEvaluationIntent(state: state, turnID: UUID())
+        let turnID = UUID()
+        let intent = makeEvaluationIntent(state: state, turnID: turnID)
         let record = EventRecord(
             id: UUID(),
             encounterID: state.id,
@@ -241,7 +242,7 @@ final class FileRuntimeJournalTests: XCTestCase {
             event: .userSubmitted("legacy journal")
         )
         let result = SimulationEvent.answerEvaluated(
-            intentPayloadTurnID(intent),
+            turnID: turnID,
             AnswerEvaluation(answeredQuestion: true, relevance: 1, specificity: 1)
         )
 
