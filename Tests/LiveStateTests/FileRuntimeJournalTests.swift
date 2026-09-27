@@ -225,4 +225,80 @@ final class FileRuntimeJournalTests: XCTestCase {
         }
     }
 
+
+    func testVersionOneSnapshotMigratesWithoutLosingDurableState() async throws {
+        let url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let state = EncounterState(lifecycle: .active)
+        let intent = makeEvaluationIntent(state: state, turnID: UUID())
+        let record = EventRecord(
+            id: UUID(),
+            encounterID: state.id,
+            branchID: state.activeBranchID,
+            sequence: 1,
+            timestamp: Date(timeIntervalSince1970: 1),
+            event: .userSubmitted("legacy journal")
+        )
+        let result = SimulationEvent.answerEvaluated(
+            intentPayloadTurnID(intent),
+            AnswerEvaluation(answeredQuestion: true, relevance: 1, specificity: 1)
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let legacyObject: [String: Any] = [
+            "schemaVersion": 1,
+            "events": try JSONSerialization.jsonObject(with: encoder.encode([record])),
+            "intents": try JSONSerialization.jsonObject(with: encoder.encode([intent.id: intent])),
+            "results": try JSONSerialization.jsonObject(with: encoder.encode([intent.id: result])),
+            "completedIntentIDs": []
+        ]
+        let data = try JSONSerialization.data(withJSONObject: legacyObject)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: url)
+
+        let journal = try FileRuntimeJournal(fileURL: url)
+        let records = try await journal.records(encounterID: state.id)
+        let pending = try await journal.pendingIntents(encounterID: state.id)
+        let cached = try await journal.result(for: intent.id)
+
+        XCTAssertEqual(records, [record])
+        XCTAssertEqual(pending.map(\.id), [intent.id])
+        XCTAssertEqual(cached, result)
+
+        // A mutation rewrites the migrated in-memory snapshot as schema v2.
+        try await journal.markCompleted(intentID: intent.id)
+        let persisted = try JSONSerialization.jsonObject(
+            with: Data(contentsOf: url)
+        ) as? [String: Any]
+        XCTAssertEqual(persisted?["schemaVersion"] as? Int, 2)
+    }
+
+    func testFutureJournalSchemaIsRejected() throws {
+        let url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let data = try JSONSerialization.data(withJSONObject: [
+            "schemaVersion": 999,
+            "events": [],
+            "transactions": [:],
+            "intents": [:],
+            "results": [:],
+            "completedIntentIDs": []
+        ])
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: url)
+
+        XCTAssertThrowsError(try FileRuntimeJournal(fileURL: url)) { error in
+            XCTAssertEqual(error as? FileRuntimeJournal.StorageError, .unsupportedSchema(999))
+        }
+    }
+
 }
