@@ -5,6 +5,10 @@ public enum SimulationEvent: Equatable, Sendable, Codable {
     case preparationCompleted
     case encounterStarting
     case encounterStarted
+    case userSpeechStarted
+    case userSpeechEnded
+    case userSilenceStarted
+    case counterpartInterrupted
     case userSubmitted(String)
     case counterpartResponded(String)
     case answerEvaluated(turnID: UUID, AnswerEvaluation)
@@ -70,6 +74,10 @@ public struct EventRecord: Identifiable, Equatable, Sendable, Codable {
         case .preparationCompleted: "preparationCompleted"
         case .encounterStarting: "encounterStarting"
         case .encounterStarted: "encounterStarted"
+        case .userSpeechStarted: "userSpeechStarted"
+        case .userSpeechEnded: "userSpeechEnded"
+        case .userSilenceStarted: "userSilenceStarted"
+        case .counterpartInterrupted: "counterpartInterrupted"
         case .userSubmitted: "userSubmitted"
         case .counterpartResponded: "counterpartResponded"
         case .answerEvaluated: "answerEvaluated"
