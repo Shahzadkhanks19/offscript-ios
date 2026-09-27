@@ -144,4 +144,85 @@ final class FileRuntimeJournalTests: XCTestCase {
         let records = try await reopened.records(encounterID: state.id)
         XCTAssertEqual(records, [first])
     }
+
+    func testExactTransactionReplayIsIdempotentAcrossReopen() async throws {
+        let url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let state = EncounterState(lifecycle: .active)
+        let intent = makeEvaluationIntent(state: state, turnID: UUID())
+        let record = EventRecord(
+            id: UUID(),
+            encounterID: state.id,
+            branchID: state.activeBranchID,
+            sequence: 1,
+            timestamp: Date(timeIntervalSince1970: 1),
+            event: .userSubmitted("same transaction")
+        )
+
+        var journal: FileRuntimeJournal? = try FileRuntimeJournal(fileURL: url)
+        try await journal!.commit(event: record, intents: [intent], completing: nil)
+        journal = nil
+
+        let reopened = try FileRuntimeJournal(fileURL: url)
+        try await reopened.commit(event: record, intents: [intent], completing: nil)
+
+        let records = try await reopened.records(encounterID: state.id)
+        let pending = try await reopened.pendingIntents(encounterID: state.id)
+        XCTAssertEqual(records, [record])
+        XCTAssertEqual(pending.map(\.id), [intent.id])
+    }
+
+    func testReplayRejectsDifferentChildIntentsForSameEvent() async throws {
+        let url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let state = EncounterState(lifecycle: .active)
+        let firstIntent = makeEvaluationIntent(state: state, turnID: UUID())
+        let differentIntent = makeEvaluationIntent(state: state, turnID: UUID())
+        let record = EventRecord(
+            id: UUID(),
+            encounterID: state.id,
+            branchID: state.activeBranchID,
+            sequence: 1,
+            timestamp: Date(timeIntervalSince1970: 1),
+            event: .userSubmitted("transaction identity")
+        )
+
+        let journal = try FileRuntimeJournal(fileURL: url)
+        try await journal.commit(event: record, intents: [firstIntent], completing: nil)
+
+        do {
+            try await journal.commit(event: record, intents: [differentIntent], completing: nil)
+            XCTFail("Same event cannot be replayed with different child intents")
+        } catch let error as RuntimeJournalError {
+            XCTAssertEqual(error, .transactionConflict(eventID: record.id))
+        }
+    }
+
+    func testReplayRejectsDifferentParentCompletionForSameEvent() async throws {
+        let url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let state = EncounterState(lifecycle: .active)
+        let record = EventRecord(
+            id: UUID(),
+            encounterID: state.id,
+            branchID: state.activeBranchID,
+            sequence: 1,
+            timestamp: Date(timeIntervalSince1970: 1),
+            event: .userSubmitted("completion identity")
+        )
+
+        let journal = try FileRuntimeJournal(fileURL: url)
+        try await journal.commit(event: record, intents: [], completing: nil)
+
+        do {
+            try await journal.commit(event: record, intents: [], completing: UUID())
+            XCTFail("Same event cannot be replayed with a different parent completion")
+        } catch let error as RuntimeJournalError {
+            XCTAssertEqual(error, .transactionConflict(eventID: record.id))
+        }
+    }
+
 }
