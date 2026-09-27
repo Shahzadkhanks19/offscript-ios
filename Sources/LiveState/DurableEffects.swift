@@ -100,6 +100,9 @@ public protocol RuntimeJournal: Sendable {
         intents: [DurableEffectIntent],
         completing intentID: UUID?
     ) async throws
+    /// Returns the committed event stream for one encounter in sequence order.
+    /// The journal is the authoritative recovery source in durable mode.
+    func records(encounterID: UUID) async throws -> [EventRecord]
     func pendingIntents(encounterID: UUID) async throws -> [DurableEffectIntent]
     func markCompleted(intentID: UUID) async throws
 
