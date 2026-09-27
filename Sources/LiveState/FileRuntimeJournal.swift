@@ -12,6 +12,7 @@ public actor FileRuntimeJournal: RuntimeJournal {
 
         var schemaVersion: Int = currentSchemaVersion
         var events: [EventRecord] = []
+        var transactions: [UUID: RuntimeJournalTransaction] = [:]
         var intents: [UUID: DurableEffectIntent] = [:]
         var results: [UUID: SimulationEvent] = [:]
         var completedIntentIDs: Set<UUID> = []
@@ -36,13 +37,25 @@ public actor FileRuntimeJournal: RuntimeJournal {
         completing intentID: UUID?
     ) async throws {
         var next = snapshot
+        let transaction = RuntimeJournalTransaction(
+            event: event,
+            intents: newIntents,
+            completingIntentID: intentID
+        )
+
+        if let existingTransaction = next.transactions[event.id] {
+            guard existingTransaction == transaction else {
+                throw RuntimeJournalError.transactionConflict(eventID: event.id)
+            }
+            return
+        }
 
         if let existing = next.events.first(where: { $0.id == event.id }) {
             guard existing == event else {
                 throw RuntimeJournalError.eventConflict(id: event.id)
             }
-            // Exact event replay is allowed, but the transaction still needs
-            // validation below so conflicting outbox work cannot hide behind it.
+            // A legacy snapshot can contain the event without transaction
+            // metadata. Validate the rest of the transaction before adopting it.
         }
 
         if let encounterID = event.encounterID,
@@ -79,6 +92,7 @@ public actor FileRuntimeJournal: RuntimeJournal {
             next.intents[intent.id] = intent
         }
 
+        next.transactions[event.id] = transaction
         try persist(next)
         snapshot = next
     }
