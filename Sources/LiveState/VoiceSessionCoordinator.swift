@@ -28,7 +28,8 @@ public actor VoiceSessionCoordinator {
         isRunning = true
         do {
             try await input.start()
-            for try await event in input.events() {
+            let stream = await input.events()
+            for try await event in stream {
                 guard isRunning else { break }
                 try await handle(event)
             }
