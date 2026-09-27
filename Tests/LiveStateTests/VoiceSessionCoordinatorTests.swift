@@ -34,6 +34,27 @@ private actor SuspendedSpeech: CounterpartSpeechService {
     }
 }
 
+private actor SequencedSpeech: CounterpartSpeechService {
+    private var firstContinuation: CheckedContinuation<Void, Error>?
+    private(set) var spoken: [String] = []
+    private(set) var stops = 0
+
+    func speak(_ text: String) async throws {
+        spoken.append(text)
+        if spoken.count == 1 {
+            try await withCheckedThrowingContinuation { continuation in
+                firstContinuation = continuation
+            }
+        }
+    }
+
+    func stop() async {
+        stops += 1
+        firstContinuation?.resume()
+        firstContinuation = nil
+    }
+}
+
 private struct VCEvaluation: EvaluationService {
     func evaluate(turnID: UUID, text: String, context: EvaluationContext, idempotencyKey: UUID) async throws -> AnswerEvaluation {
         .init(answeredQuestion: true, relevance: 1, specificity: 1)
@@ -166,6 +187,34 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(stops, 1)
         XCTAssertEqual(state.user.interruptions, 1)
         XCTAssertEqual(state.conversation.turnState, .userSpeaking)
+    }
+
+    func testNewCounterpartPlaybackSupersedesOlderGeneration() async throws {
+        let runtime = runtime()
+        let speech = SequencedSpeech()
+        let coordinator = VoiceSessionCoordinator(
+            input: FakeVoiceInput(),
+            speech: speech,
+            runtime: runtime
+        )
+
+        let first = Task {
+            try await coordinator.speakCounterpart("First response")
+        }
+
+        while await runtime.state.conversation.turnState != .counterpartSpeaking {
+            await Task.yield()
+        }
+
+        try await coordinator.speakCounterpart("Replacement response")
+        try await first.value
+
+        let spoken = await speech.spoken
+        let stops = await speech.stops
+        let state = await runtime.state
+        XCTAssertEqual(spoken, ["First response", "Replacement response"])
+        XCTAssertEqual(stops, 1)
+        XCTAssertEqual(state.conversation.turnState, .idle)
     }
 
     func testStopStopsBothVoiceDirections() async {
