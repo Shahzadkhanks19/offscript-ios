@@ -244,11 +244,11 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
 
         try await coordinator.handleActivity(.speechBegan)
         try await coordinator.handleActivity(.silenceDuration(milliseconds: 899))
-        var state = await runtime.state
+        var state = await encounterRuntime.state
         XCTAssertEqual(state.conversation.turnState, .userSpeaking)
 
         try await coordinator.handleActivity(.silenceDuration(milliseconds: 900))
-        state = await runtime.state
+        state = await encounterRuntime.state
         XCTAssertEqual(state.conversation.turnState, .silence)
     }
 
@@ -387,8 +387,12 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
 
     func testRestartCreatesNewInputSessionAndRejectsObsoleteStreamCallbacks() async throws {
         let input = RestartableVoiceInput()
-        let runtime = runtime()
-        let coordinator = VoiceSessionCoordinator(input: input, speech: FakeSpeech(), runtime: runtime())
+        let encounterRuntime = runtime()
+        let coordinator = VoiceSessionCoordinator(
+            input: input,
+            speech: FakeSpeech(),
+            runtime: encounterRuntime
+        )
 
         let first = Task { try await coordinator.start() }
         while await input.streamCount < 1 { await Task.yield() }
@@ -401,14 +405,14 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         await input.yield(.transcript(.init(text: "obsolete", isFinal: true)), streamID: 0)
         await Task.yield()
 
-        var state = await runtime.state
+        var state = await encounterRuntime.state
         XCTAssertTrue(state.conversation.turns.isEmpty)
 
         await input.yield(.speechStarted, streamID: 1)
         await input.yield(.transcript(.init(text: "current", isFinal: true)), streamID: 1)
 
-        while await runtime.state.user.totalTurns < 1 { await Task.yield() }
-        state = await runtime.state
+        while await encounterRuntime.state.user.totalTurns < 1 { await Task.yield() }
+        state = await encounterRuntime.state
         XCTAssertEqual(state.user.totalTurns, 1)
         XCTAssertEqual(state.conversation.turns.last?.text, "current")
 
