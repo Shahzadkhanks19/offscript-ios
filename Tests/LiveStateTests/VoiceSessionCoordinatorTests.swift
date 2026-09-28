@@ -560,4 +560,32 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         XCTAssertTrue(spoken.isEmpty)
     }
 
+    func testConcurrentCommittedResponsesSupersedeOlderAutomaticPlayback() async throws {
+        let input = StreamingVoiceInput()
+        let speech = SequencedSpeech()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
+
+        let session = Task { try await coordinator.start() }
+        while await input.starts == 0 { await Task.yield() }
+
+        let first = Task {
+            _ = try await runtime.send(.counterpartResponded("First committed response"))
+        }
+        while await speech.spoken.isEmpty { await Task.yield() }
+
+        _ = try await runtime.send(.counterpartResponded("Newer committed response"))
+        try await first.value
+
+        let spoken = await speech.spoken
+        let stops = await speech.stops
+        let state = await runtime.state
+        XCTAssertEqual(spoken, ["First committed response", "Newer committed response"])
+        XCTAssertEqual(stops, 1)
+        XCTAssertEqual(state.conversation.turnState, .idle)
+
+        await coordinator.stop()
+        try await session.value
+    }
+
 }
