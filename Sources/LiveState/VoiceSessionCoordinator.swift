@@ -10,6 +10,7 @@ public actor VoiceSessionCoordinator {
     private var runGeneration: UInt64 = 0
     private var speechGeneration: UInt64 = 0
     private var runtimeObserverID: UUID?
+    private var handledCounterpartResponseRecords: Set<UUID> = []
 
     public init(
         input: any VoiceInputService,
@@ -31,9 +32,9 @@ public actor VoiceSessionCoordinator {
         activityGate.reset()
         bridge.reset()
         if runtimeObserverID == nil {
-            runtimeObserverID = await runtime.observe { event, _ in
-                guard case let .counterpartResponded(text) = event else { return }
-                await self.speakCommittedCounterpartResponse(text)
+            runtimeObserverID = await runtime.observe { record, _ in
+                guard case let .counterpartResponded(text) = record.event else { return }
+                await self.speakCommittedCounterpartResponse(text, recordID: record.id)
             }
         }
         runGeneration &+= 1
@@ -123,8 +124,9 @@ public actor VoiceSessionCoordinator {
         }
     }
 
-    private func speakCommittedCounterpartResponse(_ text: String) async {
+    private func speakCommittedCounterpartResponse(_ text: String, recordID: UUID) async {
         guard isRunning else { return }
+        guard handledCounterpartResponseRecords.insert(recordID).inserted else { return }
         try? await speakCounterpart(text)
     }
 
