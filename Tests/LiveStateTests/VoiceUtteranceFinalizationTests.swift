@@ -59,6 +59,19 @@ final class VoiceUtteranceFinalizationTests: XCTestCase {
         XCTAssertEqual(bridge.receive(.speechEnded, encounter: state), [.userSpeechEnded])
     }
 
+    func testMeaningfulSilenceFinalizesPendingFinalTranscript() {
+        var bridge = VoiceTurnBridge()
+        let state = EncounterState(lifecycle: .active)
+        _ = bridge.receive(.speechStarted, encounter: state)
+        _ = bridge.receive(.transcript(.init(text: "A concrete example", isFinal: true)), encounter: state)
+
+        XCTAssertEqual(
+            bridge.receive(.silenceStarted, encounter: state),
+            [.userSubmitted("A concrete example"), .userSilenceStarted]
+        )
+        XCTAssertEqual(bridge.receive(.speechEnded, encounter: state), [.userSpeechEnded])
+    }
+
     func testSilenceDoesNotCommitPartialTranscript() {
         var bridge = VoiceTurnBridge()
         let state = EncounterState(lifecycle: .active)
