@@ -22,6 +22,17 @@ public struct VoiceActivityGate: Equatable, Sendable {
         self.policy = policy
     }
 
+    /// Clears transient VAD ownership when capture is stopped or restarted.
+    /// Policy configuration is preserved, but no speech/silence run may leak
+    /// across physical capture sessions.
+    public mutating func reset() {
+        speechActive = false
+        silenceEmitted = false
+        bargeInEmitted = false
+        speechStartEmitted = false
+        beganWhileCounterpartSpeaking = false
+    }
+
     public mutating func receive(
         _ observation: VoiceActivityObservation,
         counterpartIsSpeaking: Bool
