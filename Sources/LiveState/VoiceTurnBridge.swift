@@ -12,6 +12,13 @@ public struct VoiceTurnBridge: Equatable, Sendable {
         self.pendingUtteranceFinal = nil
     }
 
+    /// Clears all ephemeral capture/transcription state between physical
+    /// capture sessions. No pending transcript may cross a stop/restart boundary.
+    public mutating func reset() {
+        input = .init()
+        pendingUtteranceFinal = nil
+    }
+
     public mutating func receive(
         _ event: VoiceInputEvent,
         encounter: EncounterState
