@@ -48,7 +48,7 @@ public struct VoiceActivityGate: Equatable, Sendable {
             return [.interruptedCounterpart]
 
         case let .silenceDuration(milliseconds):
-            guard !silenceEmitted else { return [] }
+            guard speechActive, speechStartEmitted, !silenceEmitted else { return [] }
             guard VoiceActivityEngine.silenceDecision(
                 durationMilliseconds: milliseconds,
                 policy: policy
