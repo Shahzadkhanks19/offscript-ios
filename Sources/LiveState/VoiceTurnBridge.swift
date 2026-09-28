@@ -7,11 +7,15 @@ public struct VoiceTurnBridge: Equatable, Sendable {
     public private(set) var input: VoiceInputState
     private var pendingUtteranceFinal: String?
     private var latestTranscriptRevision: UInt64?
+    private var activeUtteranceID: UInt64?
+    private var closedUtteranceIDs: Set<UInt64>
 
     public init(input: VoiceInputState = .init()) {
         self.input = input
         self.pendingUtteranceFinal = nil
         self.latestTranscriptRevision = nil
+        self.activeUtteranceID = nil
+        self.closedUtteranceIDs = []
     }
 
     /// Clears all ephemeral capture/transcription state between physical
@@ -20,6 +24,8 @@ public struct VoiceTurnBridge: Equatable, Sendable {
         input = .init()
         pendingUtteranceFinal = nil
         latestTranscriptRevision = nil
+        activeUtteranceID = nil
+        closedUtteranceIDs.removeAll(keepingCapacity: true)
     }
 
     public mutating func receive(
@@ -32,11 +38,21 @@ public struct VoiceTurnBridge: Equatable, Sendable {
 
         switch event {
         case .speechStarted:
+            closeActiveUtterance()
             pendingUtteranceFinal = nil
             latestTranscriptRevision = nil
+            activeUtteranceID = nil
             return [.userSpeechStarted]
 
         case let .transcript(transcript):
+            if let utteranceID = transcript.utteranceID {
+                guard !closedUtteranceIDs.contains(utteranceID) else { return [] }
+                if let activeUtteranceID {
+                    guard activeUtteranceID == utteranceID else { return [] }
+                } else {
+                    activeUtteranceID = utteranceID
+                }
+            }
             if let latestTranscriptRevision, transcript.revision < latestTranscriptRevision {
                 return []
             }
@@ -48,6 +64,7 @@ public struct VoiceTurnBridge: Equatable, Sendable {
             return []
 
         case .speechEnded:
+            closeActiveUtterance()
             guard let text = pendingUtteranceFinal else {
                 return [.userSpeechEnded]
             }
@@ -55,6 +72,7 @@ public struct VoiceTurnBridge: Equatable, Sendable {
             return [.userSubmitted(text), .userSpeechEnded]
 
         case .silenceStarted:
+            closeActiveUtterance()
             guard let text = pendingUtteranceFinal else {
                 return [.userSilenceStarted]
             }
@@ -62,11 +80,21 @@ public struct VoiceTurnBridge: Equatable, Sendable {
             return [.userSubmitted(text), .userSilenceStarted]
 
         case .interruptedCounterpart:
+            closeActiveUtterance()
             pendingUtteranceFinal = nil
+            latestTranscriptRevision = nil
+            activeUtteranceID = nil
             guard encounter.conversation.turnState == .counterpartSpeaking else {
                 return [.userSpeechStarted]
             }
             return [.counterpartInterrupted, .userSpeechStarted]
         }
+    }
+
+    private mutating func closeActiveUtterance() {
+        if let activeUtteranceID {
+            closedUtteranceIDs.insert(activeUtteranceID)
+        }
+        activeUtteranceID = nil
     }
 }
