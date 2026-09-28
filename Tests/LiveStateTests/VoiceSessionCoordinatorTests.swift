@@ -458,6 +458,7 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
 
         await input.yield(.activity(.speechDuration(milliseconds: 180)))
         while await runtime.state.user.interruptions == 0 { await Task.yield() }
+        while await runtime.state.conversation.turnState != .userSpeaking { await Task.yield() }
 
         state = await runtime.state
         let stopsAfterThreshold = await speech.stops
