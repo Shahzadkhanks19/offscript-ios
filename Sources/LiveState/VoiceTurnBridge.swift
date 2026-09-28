@@ -6,10 +6,12 @@ import Foundation
 public struct VoiceTurnBridge: Equatable, Sendable {
     public private(set) var input: VoiceInputState
     private var pendingUtteranceFinal: String?
+    private var latestTranscriptRevision: UInt64?
 
     public init(input: VoiceInputState = .init()) {
         self.input = input
         self.pendingUtteranceFinal = nil
+        self.latestTranscriptRevision = nil
     }
 
     /// Clears all ephemeral capture/transcription state between physical
@@ -17,6 +19,7 @@ public struct VoiceTurnBridge: Equatable, Sendable {
     public mutating func reset() {
         input = .init()
         pendingUtteranceFinal = nil
+        latestTranscriptRevision = nil
     }
 
     public mutating func receive(
@@ -30,9 +33,14 @@ public struct VoiceTurnBridge: Equatable, Sendable {
         switch event {
         case .speechStarted:
             pendingUtteranceFinal = nil
+            latestTranscriptRevision = nil
             return [.userSpeechStarted]
 
         case let .transcript(transcript):
+            if let latestTranscriptRevision, transcript.revision < latestTranscriptRevision {
+                return []
+            }
+            latestTranscriptRevision = transcript.revision
             guard transcript.isFinal else { return [] }
             let text = transcript.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return [] }
