@@ -21,6 +21,7 @@ public actor EncounterRuntime {
     public private(set) var pendingEffects: [PendingEffect] = []
     private let runner: EffectRunner
     private let journal: (any RuntimeJournal)?
+    private var observers: [UUID: @Sendable (SimulationEvent, EncounterState) async -> Void] = [:]
 
     public init(
         state: EncounterState = .init(),
@@ -76,6 +77,21 @@ public actor EncounterRuntime {
             runner: runner,
             journal: journal
         )
+    }
+
+    /// Runtime observers receive already-persisted authoritative events. They
+    /// are for ephemeral orchestration/presentation only and never mutate state.
+    @discardableResult
+    public func observe(
+        _ observer: @escaping @Sendable (SimulationEvent, EncounterState) async -> Void
+    ) -> UUID {
+        let id = UUID()
+        observers[id] = observer
+        return id
+    }
+
+    public func removeObserver(_ id: UUID) {
+        observers.removeValue(forKey: id)
     }
 
     @discardableResult
@@ -176,6 +192,7 @@ public actor EncounterRuntime {
                 )
                 completionID = nil
                 state = reduction.state
+                await notifyObservers(event: current)
 
                 for intent in intents {
                     let produced: SimulationEvent?
@@ -209,6 +226,7 @@ public actor EncounterRuntime {
 
             _ = try await runner.run(.persistEvent(eventRecord), state: reduction.state)
             state = reduction.state
+            await notifyObservers(event: current)
 
             for (index, effect) in postCommitEffects.enumerated() {
                 let effectState = state
@@ -226,6 +244,13 @@ public actor EncounterRuntime {
                     try await process(events: [produced])
                 }
             }
+        }
+    }
+
+    private func notifyObservers(event: SimulationEvent) async {
+        let committedState = state
+        for observer in observers.values {
+            await observer(event, committedState)
         }
     }
 }
