@@ -39,11 +39,43 @@ final class VoiceActivityGateTests: XCTestCase {
         XCTAssertTrue(gate.receive(.speechDuration(milliseconds: 500), counterpartIsSpeaking: false).isEmpty)
     }
 
-    func testSpeechResetsPreviousSilenceGate() {
+    func testSilenceRequiresOwnedSpeechAndResetsForNextUtterance() {
         var gate = VoiceActivityGate(policy: .init(meaningfulSilenceMilliseconds: 100))
-        _ = gate.receive(.silenceDuration(milliseconds: 100), counterpartIsSpeaking: false)
-        XCTAssertTrue(gate.receive(.silenceDuration(milliseconds: 200), counterpartIsSpeaking: false).isEmpty)
+
+        XCTAssertTrue(
+            gate.receive(.silenceDuration(milliseconds: 100), counterpartIsSpeaking: false).isEmpty
+        )
+
         _ = gate.receive(.speechBegan, counterpartIsSpeaking: false)
-        XCTAssertEqual(gate.receive(.silenceDuration(milliseconds: 100), counterpartIsSpeaking: false), [.silenceStarted])
+        XCTAssertEqual(
+            gate.receive(.silenceDuration(milliseconds: 100), counterpartIsSpeaking: false),
+            [.silenceStarted]
+        )
+        _ = gate.receive(.speechEnded, counterpartIsSpeaking: false)
+
+        XCTAssertTrue(
+            gate.receive(.silenceDuration(milliseconds: 200), counterpartIsSpeaking: false).isEmpty
+        )
+
+        _ = gate.receive(.speechBegan, counterpartIsSpeaking: false)
+        XCTAssertEqual(
+            gate.receive(.silenceDuration(milliseconds: 100), counterpartIsSpeaking: false),
+            [.silenceStarted]
+        )
+    }
+
+    func testUnqualifiedBargeInNoiseCannotBecomeMeaningfulUserSilence() {
+        var gate = VoiceActivityGate(
+            policy: .init(meaningfulSilenceMilliseconds: 100, bargeInMilliseconds: 180)
+        )
+
+        XCTAssertTrue(gate.receive(.speechBegan, counterpartIsSpeaking: true).isEmpty)
+        XCTAssertTrue(
+            gate.receive(.speechDuration(milliseconds: 179), counterpartIsSpeaking: true).isEmpty
+        )
+        XCTAssertTrue(
+            gate.receive(.silenceDuration(milliseconds: 100), counterpartIsSpeaking: true).isEmpty
+        )
+        XCTAssertTrue(gate.receive(.speechEnded, counterpartIsSpeaking: true).isEmpty)
     }
 }
