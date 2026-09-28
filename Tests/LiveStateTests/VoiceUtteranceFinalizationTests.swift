@@ -92,4 +92,47 @@ final class VoiceUtteranceFinalizationTests: XCTestCase {
         XCTAssertEqual(bridge.receive(.speechEnded, encounter: state), [.userSpeechEnded])
     }
 
+    func testOlderTranscriptRevisionCannotReplaceNewerFinalSnapshot() {
+        var bridge = VoiceTurnBridge()
+        let state = EncounterState(lifecycle: .active)
+        _ = bridge.receive(.speechStarted, encounter: state)
+
+        _ = bridge.receive(
+            .transcript(.init(text: "Use SSR for faster first paint", isFinal: true, revision: 2)),
+            encounter: state
+        )
+        _ = bridge.receive(
+            .transcript(.init(text: "Use SSR", isFinal: true, revision: 1)),
+            encounter: state
+        )
+
+        XCTAssertEqual(
+            bridge.receive(.speechEnded, encounter: state),
+            [.userSubmitted("Use SSR for faster first paint"), .userSpeechEnded]
+        )
+    }
+
+    func testTranscriptRevisionRestartsAtNewSpeechBoundary() {
+        var bridge = VoiceTurnBridge()
+        let state = EncounterState(lifecycle: .active)
+
+        _ = bridge.receive(.speechStarted, encounter: state)
+        _ = bridge.receive(
+            .transcript(.init(text: "First", isFinal: true, revision: 5)),
+            encounter: state
+        )
+        _ = bridge.receive(.speechEnded, encounter: state)
+
+        _ = bridge.receive(.speechStarted, encounter: state)
+        _ = bridge.receive(
+            .transcript(.init(text: "Second", isFinal: true, revision: 0)),
+            encounter: state
+        )
+
+        XCTAssertEqual(
+            bridge.receive(.speechEnded, encounter: state),
+            [.userSubmitted("Second"), .userSpeechEnded]
+        )
+    }
+
 }
