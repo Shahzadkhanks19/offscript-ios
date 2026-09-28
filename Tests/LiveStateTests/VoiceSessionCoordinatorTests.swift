@@ -452,15 +452,17 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         await Task.yield()
 
         var state = await runtime.state
+        let stopsBeforeThreshold = await speech.stops
         XCTAssertEqual(state.conversation.turnState, .counterpartSpeaking)
-        XCTAssertEqual(await speech.stops, 0)
+        XCTAssertEqual(stopsBeforeThreshold, 0)
 
         await input.yield(.activity(.speechDuration(milliseconds: 180)))
         while await runtime.state.user.interruptions == 0 { await Task.yield() }
 
         state = await runtime.state
+        let stopsAfterThreshold = await speech.stops
         XCTAssertEqual(state.conversation.turnState, .userSpeaking)
-        XCTAssertEqual(await speech.stops, 1)
+        XCTAssertEqual(stopsAfterThreshold, 1)
 
         await coordinator.stop()
         try await session.value
