@@ -522,4 +522,42 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         XCTAssertTrue(spoken.isEmpty)
     }
 
+    func testNaturallyFinishedCaptureDetachesRuntimeSpeechObserver() async throws {
+        let input = FakeVoiceInput()
+        let speech = FakeSpeech()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
+
+        try await coordinator.start()
+        _ = try await runtime.send(.counterpartResponded("After capture ended"))
+
+        let spoken = await speech.spoken
+        XCTAssertTrue(spoken.isEmpty)
+    }
+
+    func testFailedCaptureDetachesRuntimeSpeechObserver() async {
+        let input = StreamingVoiceInput()
+        let speech = FakeSpeech()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
+
+        let session = Task { try await coordinator.start() }
+        while await input.starts == 0 { await Task.yield() }
+        await input.fail(VoiceStreamTestError.failed)
+
+        do {
+            try await session.value
+            XCTFail("Expected stream failure")
+        } catch {}
+
+        do {
+            _ = try await runtime.send(.counterpartResponded("After capture failed"))
+        } catch {
+            XCTFail("Runtime send unexpectedly failed: \(error)")
+        }
+
+        let spoken = await speech.spoken
+        XCTAssertTrue(spoken.isEmpty)
+    }
+
 }
