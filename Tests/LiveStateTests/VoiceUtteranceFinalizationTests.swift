@@ -135,4 +135,55 @@ final class VoiceUtteranceFinalizationTests: XCTestCase {
         )
     }
 
+    func testLateCallbackFromClosedUtteranceCannotEnterNextUtterance() {
+        var bridge = VoiceTurnBridge()
+        let state = EncounterState(lifecycle: .active)
+
+        _ = bridge.receive(.speechStarted, encounter: state)
+        _ = bridge.receive(
+            .transcript(.init(text: "First answer", isFinal: true, revision: 1, utteranceID: 41)),
+            encounter: state
+        )
+        _ = bridge.receive(.speechEnded, encounter: state)
+
+        _ = bridge.receive(.speechStarted, encounter: state)
+        XCTAssertTrue(
+            bridge.receive(
+                .transcript(.init(text: "late first answer", isFinal: true, revision: 2, utteranceID: 41)),
+                encounter: state
+            ).isEmpty
+        )
+        _ = bridge.receive(
+            .transcript(.init(text: "Second answer", isFinal: true, revision: 0, utteranceID: 42)),
+            encounter: state
+        )
+
+        XCTAssertEqual(
+            bridge.receive(.speechEnded, encounter: state),
+            [.userSubmitted("Second answer"), .userSpeechEnded]
+        )
+    }
+
+    func testDifferentUtteranceIdentityCannotReplaceActiveUtterance() {
+        var bridge = VoiceTurnBridge()
+        let state = EncounterState(lifecycle: .active)
+
+        _ = bridge.receive(.speechStarted, encounter: state)
+        _ = bridge.receive(
+            .transcript(.init(text: "Current answer", isFinal: true, revision: 1, utteranceID: 50)),
+            encounter: state
+        )
+        XCTAssertTrue(
+            bridge.receive(
+                .transcript(.init(text: "foreign callback", isFinal: true, revision: 9, utteranceID: 51)),
+                encounter: state
+            ).isEmpty
+        )
+
+        XCTAssertEqual(
+            bridge.receive(.speechEnded, encounter: state),
+            [.userSubmitted("Current answer"), .userSpeechEnded]
+        )
+    }
+
 }
