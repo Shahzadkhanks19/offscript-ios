@@ -9,6 +9,7 @@ public actor VoiceSessionCoordinator {
     private var isRunning = false
     private var runGeneration: UInt64 = 0
     private var speechGeneration: UInt64 = 0
+    private var runtimeObserverID: UUID?
 
     public init(
         input: any VoiceInputService,
@@ -29,6 +30,12 @@ public actor VoiceSessionCoordinator {
         isRunning = true
         activityGate.reset()
         bridge.reset()
+        if runtimeObserverID == nil {
+            runtimeObserverID = await runtime.observe { event, _ in
+                guard case let .counterpartResponded(text) = event else { return }
+                await self.speakCommittedCounterpartResponse(text)
+            }
+        }
         runGeneration &+= 1
         let generation = runGeneration
 
@@ -74,6 +81,10 @@ public actor VoiceSessionCoordinator {
         speechGeneration &+= 1
         activityGate.reset()
         bridge.reset()
+        if let runtimeObserverID {
+            await runtime.removeObserver(runtimeObserverID)
+            self.runtimeObserverID = nil
+        }
 
         // Stopping is deliberately idempotent at the coordinator boundary:
         // adapters must tolerate stop even when capture has not started.
@@ -104,6 +115,10 @@ public actor VoiceSessionCoordinator {
         for event in events {
             try await handle(event)
         }
+    }
+
+    private func speakCommittedCounterpartResponse(_ text: String) async {
+        try? await speakCounterpart(text)
     }
 
     public func speakCounterpart(_ text: String) async throws {
