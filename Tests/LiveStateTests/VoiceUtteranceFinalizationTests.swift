@@ -80,4 +80,16 @@ final class VoiceUtteranceFinalizationTests: XCTestCase {
         XCTAssertEqual(bridge.receive(.silenceStarted, encounter: state), [.userSilenceStarted])
         XCTAssertEqual(bridge.input.partialTranscript, "unfinished thought")
     }
+    func testResetDropsPendingTranscriptAndPresentationState() {
+        var bridge = VoiceTurnBridge()
+        let state = EncounterState(lifecycle: .active)
+
+        _ = bridge.receive(.speechStarted, encounter: state)
+        _ = bridge.receive(.transcript(.init(text: "must not leak", isFinal: true)), encounter: state)
+        bridge.reset()
+
+        XCTAssertEqual(bridge.input, VoiceInputState())
+        XCTAssertEqual(bridge.receive(.speechEnded, encounter: state), [.userSpeechEnded])
+    }
+
 }
