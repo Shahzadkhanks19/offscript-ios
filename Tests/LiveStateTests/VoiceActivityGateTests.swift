@@ -78,4 +78,20 @@ final class VoiceActivityGateTests: XCTestCase {
         )
         XCTAssertTrue(gate.receive(.speechEnded, counterpartIsSpeaking: true).isEmpty)
     }
+    func testResetPreventsSpeechOwnershipLeakingAcrossCaptureSessions() {
+        var gate = VoiceActivityGate(
+            policy: .init(meaningfulSilenceMilliseconds: 100, bargeInMilliseconds: 180)
+        )
+
+        XCTAssertEqual(gate.receive(.speechBegan, counterpartIsSpeaking: false), [.speechStarted])
+        gate.reset()
+
+        XCTAssertTrue(
+            gate.receive(.silenceDuration(milliseconds: 100), counterpartIsSpeaking: false).isEmpty
+        )
+        XCTAssertTrue(gate.receive(.speechEnded, counterpartIsSpeaking: false).isEmpty)
+
+        XCTAssertEqual(gate.receive(.speechBegan, counterpartIsSpeaking: false), [.speechStarted])
+    }
+
 }
