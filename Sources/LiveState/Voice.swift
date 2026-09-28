@@ -15,16 +15,24 @@ public struct VoiceTranscript: Equatable, Sendable, Codable {
     /// lower one; adapters should restart at zero for each new speech boundary.
     public let revision: UInt64
 
+    /// Capture-adapter utterance identity. When supplied, this must remain
+    /// stable for every snapshot belonging to the same physical utterance.
+    /// The bridge uses it to reject callbacks that arrive after that utterance
+    /// has already ended and a new speech boundary has begun.
+    public let utteranceID: UInt64?
+
     public init(
         text: String,
         isFinal: Bool,
         confidence: Double? = nil,
-        revision: UInt64 = 0
+        revision: UInt64 = 0,
+        utteranceID: UInt64? = nil
     ) {
         self.text = text
         self.isFinal = isFinal
         self.confidence = confidence.map { min(max($0, 0), 1) }
         self.revision = revision
+        self.utteranceID = utteranceID
     }
 }
 
