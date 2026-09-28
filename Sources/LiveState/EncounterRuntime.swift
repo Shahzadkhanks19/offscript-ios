@@ -21,7 +21,7 @@ public actor EncounterRuntime {
     public private(set) var pendingEffects: [PendingEffect] = []
     private let runner: EffectRunner
     private let journal: (any RuntimeJournal)?
-    private var observers: [UUID: @Sendable (SimulationEvent, EncounterState) async -> Void] = [:]
+    private var observers: [UUID: @Sendable (EventRecord, EncounterState) async -> Void] = [:]
 
     public init(
         state: EncounterState = .init(),
@@ -83,7 +83,7 @@ public actor EncounterRuntime {
     /// are for ephemeral orchestration/presentation only and never mutate state.
     @discardableResult
     public func observe(
-        _ observer: @escaping @Sendable (SimulationEvent, EncounterState) async -> Void
+        _ observer: @escaping @Sendable (EventRecord, EncounterState) async -> Void
     ) -> UUID {
         let id = UUID()
         observers[id] = observer
@@ -192,7 +192,7 @@ public actor EncounterRuntime {
                 )
                 completionID = nil
                 state = reduction.state
-                await notifyObservers(event: current)
+                await notifyObservers(record: eventRecord)
 
                 for intent in intents {
                     let produced: SimulationEvent?
@@ -226,7 +226,7 @@ public actor EncounterRuntime {
 
             _ = try await runner.run(.persistEvent(eventRecord), state: reduction.state)
             state = reduction.state
-            await notifyObservers(event: current)
+            await notifyObservers(record: eventRecord)
 
             for (index, effect) in postCommitEffects.enumerated() {
                 let effectState = state
@@ -247,10 +247,10 @@ public actor EncounterRuntime {
         }
     }
 
-    private func notifyObservers(event: SimulationEvent) async {
+    private func notifyObservers(record: EventRecord) async {
         let committedState = state
         for observer in observers.values {
-            await observer(event, committedState)
+            await observer(record, committedState)
         }
     }
 }
