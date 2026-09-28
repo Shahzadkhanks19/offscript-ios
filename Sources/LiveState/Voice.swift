@@ -24,6 +24,14 @@ public enum VoiceInputEvent: Equatable, Sendable, Codable {
     case interruptedCounterpart
 }
 
+/// Raw, framework-independent observations emitted by the platform capture
+/// adapter. The adapter reports what it measured; the coordinator owns the
+/// semantic decisions such as meaningful silence and barge-in.
+public enum VoiceCaptureEvent: Equatable, Sendable {
+    case activity(VoiceActivityObservation)
+    case transcript(VoiceTranscript)
+}
+
 public struct VoiceInputState: Equatable, Sendable, Codable {
     public var isCapturing: Bool
     public var partialTranscript: String
@@ -84,7 +92,7 @@ public enum VoiceInputReducer {
 }
 
 public protocol VoiceInputService: Sendable {
-    func events() async -> AsyncThrowingStream<VoiceInputEvent, Error>
+    func events() async -> AsyncThrowingStream<VoiceCaptureEvent, Error>
     func start() async throws
     func stop() async
 }
