@@ -3,7 +3,7 @@ import XCTest
 
 private actor FakeVoiceInput: VoiceInputService {
     private(set) var stops = 0
-    func events() async -> AsyncThrowingStream<VoiceInputEvent, Error> {
+    func events() async -> AsyncThrowingStream<VoiceCaptureEvent, Error> {
         AsyncThrowingStream { $0.finish() }
     }
     func start() async throws {}
@@ -11,11 +11,11 @@ private actor FakeVoiceInput: VoiceInputService {
 }
 
 private actor StreamingVoiceInput: VoiceInputService {
-    private var continuation: AsyncThrowingStream<VoiceInputEvent, Error>.Continuation?
+    private var continuation: AsyncThrowingStream<VoiceCaptureEvent, Error>.Continuation?
     private(set) var starts = 0
     private(set) var stops = 0
 
-    func events() async -> AsyncThrowingStream<VoiceInputEvent, Error> {
+    func events() async -> AsyncThrowingStream<VoiceCaptureEvent, Error> {
         AsyncThrowingStream { continuation in
             self.continuation = continuation
         }
@@ -29,7 +29,7 @@ private actor StreamingVoiceInput: VoiceInputService {
         continuation = nil
     }
 
-    func yield(_ event: VoiceInputEvent) { continuation?.yield(event) }
+    func yield(_ event: VoiceCaptureEvent) { continuation?.yield(event) }
     func fail(_ error: Error) {
         continuation?.finish(throwing: error)
         continuation = nil
@@ -39,12 +39,12 @@ private actor StreamingVoiceInput: VoiceInputService {
 private enum VoiceStreamTestError: Error { case failed }
 
 private actor RestartableVoiceInput: VoiceInputService {
-    private var continuations: [Int: AsyncThrowingStream<VoiceInputEvent, Error>.Continuation] = [:]
+    private var continuations: [Int: AsyncThrowingStream<VoiceCaptureEvent, Error>.Continuation] = [:]
     private var nextStreamID = 0
     private(set) var starts = 0
     private(set) var stops = 0
 
-    func events() async -> AsyncThrowingStream<VoiceInputEvent, Error> {
+    func events() async -> AsyncThrowingStream<VoiceCaptureEvent, Error> {
         let id = nextStreamID
         nextStreamID += 1
         return AsyncThrowingStream { continuation in
@@ -60,7 +60,7 @@ private actor RestartableVoiceInput: VoiceInputService {
         // generation check rejects callbacks from an obsolete adapter stream.
     }
 
-    func yield(_ event: VoiceInputEvent, streamID: Int) {
+    func yield(_ event: VoiceCaptureEvent, streamID: Int) {
         continuations[streamID]?.yield(event)
     }
 
@@ -412,9 +412,9 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         var state = await encounterRuntime.state
         XCTAssertTrue(state.conversation.turns.isEmpty)
 
-        await input.yield(.speechStarted, streamID: 1)
+        await input.yield(.activity(.speechBegan), streamID: 1)
         await input.yield(.transcript(.init(text: "current", isFinal: true)), streamID: 1)
-        await input.yield(.speechEnded, streamID: 1)
+        await input.yield(.activity(.speechEnded), streamID: 1)
 
         while await encounterRuntime.state.user.totalTurns < 1 { await Task.yield() }
         state = await encounterRuntime.state
@@ -429,6 +429,41 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
 
         let starts = await input.starts
         XCTAssertEqual(starts, 2)
+    }
+
+    func testCaptureStreamCannotInventSemanticBargeIn() async throws {
+        var initial = EncounterState(lifecycle: .active)
+        initial.conversation.turnState = .counterpartSpeaking
+        let runtime = runtime(initial)
+        let input = StreamingVoiceInput()
+        let speech = FakeSpeech()
+        let coordinator = VoiceSessionCoordinator(
+            input: input,
+            speech: speech,
+            runtime: runtime,
+            activityGate: .init(policy: .init(bargeInMilliseconds: 180))
+        )
+
+        let session = Task { try await coordinator.start() }
+        while await input.starts == 0 { await Task.yield() }
+
+        await input.yield(.activity(.speechBegan))
+        await input.yield(.activity(.speechDuration(milliseconds: 179)))
+        await Task.yield()
+
+        var state = await runtime.state
+        XCTAssertEqual(state.conversation.turnState, .counterpartSpeaking)
+        XCTAssertEqual(await speech.stops, 0)
+
+        await input.yield(.activity(.speechDuration(milliseconds: 180)))
+        while await runtime.state.user.interruptions == 0 { await Task.yield() }
+
+        state = await runtime.state
+        XCTAssertEqual(state.conversation.turnState, .userSpeaking)
+        XCTAssertEqual(await speech.stops, 1)
+
+        await coordinator.stop()
+        try await session.value
     }
 
     func testStopStopsBothVoiceDirections() async {
