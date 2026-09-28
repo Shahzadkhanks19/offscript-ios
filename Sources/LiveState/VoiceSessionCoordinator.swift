@@ -40,7 +40,12 @@ public actor VoiceSessionCoordinator {
             let stream = await input.events()
             for try await event in stream {
                 guard isRunning, generation == runGeneration else { break }
-                try await handle(event)
+                switch event {
+                case let .activity(observation):
+                    try await handleActivity(observation)
+                case let .transcript(transcript):
+                    try await handle(.transcript(transcript))
+                }
             }
         } catch {
             let ownsRun = generation == runGeneration
