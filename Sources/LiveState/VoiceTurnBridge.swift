@@ -40,7 +40,11 @@ public struct VoiceTurnBridge: Equatable, Sendable {
             return [.userSubmitted(text), .userSpeechEnded]
 
         case .silenceStarted:
-            return [.userSilenceStarted]
+            guard let text = pendingUtteranceFinal else {
+                return [.userSilenceStarted]
+            }
+            pendingUtteranceFinal = nil
+            return [.userSubmitted(text), .userSilenceStarted]
 
         case .interruptedCounterpart:
             pendingUtteranceFinal = nil
