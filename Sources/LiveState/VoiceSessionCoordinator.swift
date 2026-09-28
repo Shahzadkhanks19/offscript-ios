@@ -61,6 +61,7 @@ public actor VoiceSessionCoordinator {
             if ownsRun {
                 isRunning = false
                 runGeneration &+= 1
+                await detachRuntimeObserver()
                 await input.stop()
             }
             throw error
@@ -69,6 +70,7 @@ public actor VoiceSessionCoordinator {
         guard generation == runGeneration else { return }
         isRunning = false
         runGeneration &+= 1
+        await detachRuntimeObserver()
         await input.stop()
     }
 
@@ -81,10 +83,7 @@ public actor VoiceSessionCoordinator {
         speechGeneration &+= 1
         activityGate.reset()
         bridge.reset()
-        if let runtimeObserverID {
-            await runtime.removeObserver(runtimeObserverID)
-            self.runtimeObserverID = nil
-        }
+        await detachRuntimeObserver()
 
         // Stopping is deliberately idempotent at the coordinator boundary:
         // adapters must tolerate stop even when capture has not started.
@@ -117,7 +116,15 @@ public actor VoiceSessionCoordinator {
         }
     }
 
+    private func detachRuntimeObserver() async {
+        if let runtimeObserverID {
+            await runtime.removeObserver(runtimeObserverID)
+            self.runtimeObserverID = nil
+        }
+    }
+
     private func speakCommittedCounterpartResponse(_ text: String) async {
+        guard isRunning else { return }
         try? await speakCounterpart(text)
     }
 
