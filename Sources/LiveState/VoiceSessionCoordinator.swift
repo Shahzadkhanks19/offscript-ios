@@ -27,6 +27,7 @@ public actor VoiceSessionCoordinator {
     public func start() async throws {
         guard !isRunning else { return }
         isRunning = true
+        activityGate.reset()
         runGeneration &+= 1
         let generation = runGeneration
 
@@ -70,6 +71,7 @@ public actor VoiceSessionCoordinator {
             runGeneration &+= 1
         }
         speechGeneration &+= 1
+        activityGate.reset()
 
         // Stopping is deliberately idempotent at the coordinator boundary:
         // adapters must tolerate stop even when capture has not started.
