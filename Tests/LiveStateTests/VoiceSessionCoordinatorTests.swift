@@ -479,4 +479,47 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(inputStops, 1)
         XCTAssertEqual(speechStops, 1)
     }
+    func testCommittedCounterpartResponseAutomaticallyFlowsToSpeech() async throws {
+        let input = StreamingVoiceInput()
+        let speech = FakeSpeech()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
+
+        let session = Task { try await coordinator.start() }
+        while await input.starts == 0 { await Task.yield() }
+
+        try await coordinator.handle(.speechStarted)
+        try await coordinator.handle(
+            .transcript(.init(text: "My answer", isFinal: true, utteranceID: 1))
+        )
+        try await coordinator.handle(.speechEnded)
+
+        while await speech.spoken.isEmpty { await Task.yield() }
+
+        let spoken = await speech.spoken
+        let state = await runtime.state
+        XCTAssertEqual(spoken, ["Follow-up"])
+        XCTAssertEqual(state.conversation.turns.map(\.text), ["My answer", "Follow-up"])
+        XCTAssertEqual(state.conversation.turnState, .idle)
+
+        await coordinator.stop()
+        try await session.value
+    }
+
+    func testStoppedCoordinatorDoesNotSpeakLaterRuntimeResponses() async throws {
+        let input = StreamingVoiceInput()
+        let speech = FakeSpeech()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
+
+        let session = Task { try await coordinator.start() }
+        while await input.starts == 0 { await Task.yield() }
+        await coordinator.stop()
+        try await session.value
+
+        _ = try await runtime.send(.counterpartResponded("Should remain silent"))
+        let spoken = await speech.spoken
+        XCTAssertTrue(spoken.isEmpty)
+    }
+
 }
