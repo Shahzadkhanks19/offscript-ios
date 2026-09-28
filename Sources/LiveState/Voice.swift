@@ -5,14 +5,26 @@ import Foundation
 /// Apple Speech/AVFoundation adapters will translate platform callbacks into
 /// these values. LiveState itself never imports those frameworks.
 public struct VoiceTranscript: Equatable, Sendable, Codable {
+    /// Complete best-known text for the current utterance. Platform adapters
+    /// must normalize incremental ASR segments into this snapshot contract.
     public let text: String
     public let isFinal: Bool
     public let confidence: Double?
 
-    public init(text: String, isFinal: Bool, confidence: Double? = nil) {
+    /// Monotonic revision within one utterance. A higher revision supersedes a
+    /// lower one; adapters should restart at zero for each new speech boundary.
+    public let revision: UInt64
+
+    public init(
+        text: String,
+        isFinal: Bool,
+        confidence: Double? = nil,
+        revision: UInt64 = 0
+    ) {
         self.text = text
         self.isFinal = isFinal
         self.confidence = confidence.map { min(max($0, 0), 1) }
+        self.revision = revision
     }
 }
 
