@@ -21,6 +21,8 @@ private actor StreamingVoiceInput: VoiceInputService {
         }
     }
 
+    var streamReady: Bool { continuation != nil }
+
     func start() async throws { starts += 1 }
 
     func stop() async {
@@ -363,7 +365,7 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: FakeSpeech(), runtime: runtime())
 
         let session = Task { try await coordinator.start() }
-        while await input.starts == 0 { await Task.yield() }
+        while !(await input.streamReady) { await Task.yield() }
 
         await coordinator.stop()
         try await session.value
@@ -377,7 +379,7 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: FakeSpeech(), runtime: runtime())
 
         let session = Task { try await coordinator.start() }
-        while await input.starts == 0 { await Task.yield() }
+        while !(await input.streamReady) { await Task.yield() }
         await input.fail(VoiceStreamTestError.failed)
 
         do {
@@ -445,7 +447,7 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         )
 
         let session = Task { try await coordinator.start() }
-        while await input.starts == 0 { await Task.yield() }
+        while !(await input.streamReady) { await Task.yield() }
 
         await input.yield(.activity(.speechBegan))
         await input.yield(.activity(.speechDuration(milliseconds: 179)))
@@ -492,7 +494,7 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let session = Task { try await coordinator.start() }
-        while await input.starts == 0 { await Task.yield() }
+        while !(await input.streamReady) { await Task.yield() }
 
         try await coordinator.handle(.speechStarted)
         try await coordinator.handle(
@@ -519,7 +521,7 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let session = Task { try await coordinator.start() }
-        while await input.starts == 0 { await Task.yield() }
+        while !(await input.streamReady) { await Task.yield() }
         await coordinator.stop()
         try await session.value
 
@@ -548,7 +550,7 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let session = Task { try await coordinator.start() }
-        while await input.starts == 0 { await Task.yield() }
+        while !(await input.streamReady) { await Task.yield() }
         await input.fail(VoiceStreamTestError.failed)
 
         do {
@@ -573,7 +575,7 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let session = Task { try await coordinator.start() }
-        while await input.starts == 0 { await Task.yield() }
+        while !(await input.streamReady) { await Task.yield() }
 
         let first = Task {
             _ = try await runtime.send(.counterpartResponded("First committed response"))
