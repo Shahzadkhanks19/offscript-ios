@@ -758,7 +758,8 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         while await coordinator.automaticSpeechFailure(for: recordID) == nil {
             await Task.yield()
         }
-        XCTAssertNotNil(await coordinator.automaticSpeechFailure(for: recordID))
+        let firstSessionFailure = await coordinator.automaticSpeechFailure(for: recordID)
+        XCTAssertNotNil(firstSessionFailure)
 
         await coordinator.stop()
         await input.finish(streamID: 0)
@@ -767,7 +768,8 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let secondSession = Task { try await coordinator.start() }
         while await input.streamCount < 2 { await Task.yield() }
 
-        XCTAssertNil(await coordinator.automaticSpeechFailure(for: recordID))
+        let restartedSessionFailure = await coordinator.automaticSpeechFailure(for: recordID)
+        XCTAssertNil(restartedSessionFailure)
 
         await coordinator.stop()
         await input.finish(streamID: 1)
