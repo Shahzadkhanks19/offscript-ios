@@ -34,7 +34,13 @@ public actor VoiceSessionCoordinator {
         if runtimeObserverID == nil {
             runtimeObserverID = await runtime.observe { record, _ in
                 guard case let .counterpartResponded(text) = record.event else { return }
-                await self.speakCommittedCounterpartResponse(text, recordID: record.id)
+                // Runtime observer delivery is intentionally non-suspending.
+                // Hop onto an unstructured task before crossing back into this
+                // actor so presentation/TTS work can never re-enter a runtime
+                // commit that is still on its call stack.
+                Task {
+                    await self.speakCommittedCounterpartResponse(text, recordID: record.id)
+                }
             }
         }
         runGeneration &+= 1
