@@ -596,18 +596,16 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let session = Task { try await coordinator.start() }
         while !(await input.streamReady) { await Task.yield() }
 
-        let first = Task {
-            _ = try await runtime.send(.counterpartResponded("First committed response"))
-        }
+        _ = try await runtime.send(.counterpartResponded("First committed response"))
         while await speech.spoken.isEmpty { await Task.yield() }
 
         _ = try await runtime.send(.counterpartResponded("Newer committed response"))
 
-        // Committed-event observation deliberately crosses an asynchronous
-        // boundary. Wait for the coordinator to consume the newer committed
-        // record before asserting playback ownership.
+        // Ordered committed-response delivery means the runtime send itself no
+        // longer needs to be held open in a sibling task. The first playback
+        // remains suspended in the transport until the second committed record
+        // supersedes it, which deterministically exercises replacement.
         while await speech.spoken.count < 2 { await Task.yield() }
-        try await first.value
 
         // Seeing the replacement text only proves that transport playback
         // started. Its completion still has to flow through the coordinator
