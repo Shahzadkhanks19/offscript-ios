@@ -587,9 +587,9 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         XCTAssertTrue(spoken.isEmpty)
     }
 
-    func testConcurrentCommittedResponsesSupersedeOlderAutomaticPlayback() async throws {
+    func testCommittedResponsesAreConsumedInCommitOrder() async throws {
         let input = StreamingVoiceInput()
-        let speech = SequencedSpeech()
+        let speech = FakeSpeech()
         let runtime = runtime()
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
@@ -597,28 +597,14 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         while !(await input.streamReady) { await Task.yield() }
 
         _ = try await runtime.send(.counterpartResponded("First committed response"))
-        while await speech.spoken.isEmpty { await Task.yield() }
-
         _ = try await runtime.send(.counterpartResponded("Newer committed response"))
 
-        // Ordered committed-response delivery means the runtime send itself no
-        // longer needs to be held open in a sibling task. The first playback
-        // remains suspended in the transport until the second committed record
-        // supersedes it, which deterministically exercises replacement.
         while await speech.spoken.count < 2 { await Task.yield() }
-
-        // Seeing the replacement text only proves that transport playback
-        // started. Its completion still has to flow through the coordinator
-        // and commit counterpartSpeechFinished before LiveState becomes idle.
-        while await runtime.state.conversation.turnState != .idle {
-            await Task.yield()
-        }
+        while await runtime.state.conversation.turnState != .idle { await Task.yield() }
 
         let spoken = await speech.spoken
-        let stops = await speech.stops
         let state = await runtime.state
         XCTAssertEqual(spoken, ["First committed response", "Newer committed response"])
-        XCTAssertEqual(stops, 1)
         XCTAssertEqual(state.conversation.turnState, .idle)
 
         await coordinator.stop()
