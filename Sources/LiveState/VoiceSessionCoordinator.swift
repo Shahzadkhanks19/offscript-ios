@@ -15,6 +15,7 @@ public actor VoiceSessionCoordinator {
     private var committedResponseContinuation: AsyncStream<(UUID, String)>.Continuation?
     private var committedResponseConsumer: Task<Void, Never>?
     private var handledCounterpartResponseRecords: Set<UUID> = []
+    private var automaticSpeechFailures: [UUID: String] = []
 
     public init(
         input: any VoiceInputService,
@@ -151,7 +152,20 @@ public actor VoiceSessionCoordinator {
     private func speakCommittedCounterpartResponse(_ text: String, recordID: UUID) async {
         guard isRunning else { return }
         guard handledCounterpartResponseRecords.insert(recordID).inserted else { return }
-        try? await speakCounterpart(text)
+        do {
+            try await speakCounterpart(text)
+            automaticSpeechFailures[recordID] = nil
+        } catch {
+            // The authoritative speech lifecycle is repaired by
+            // speakCounterpart before the transport error reaches this layer.
+            // Keep the failure observable instead of silently swallowing it;
+            // UI/adapters can decide whether to offer retry or fallback audio.
+            automaticSpeechFailures[recordID] = String(describing: error)
+        }
+    }
+
+    public func automaticSpeechFailure(for recordID: UUID) -> String? {
+        automaticSpeechFailures[recordID]
     }
 
     public func speakCounterpart(_ text: String) async throws {
