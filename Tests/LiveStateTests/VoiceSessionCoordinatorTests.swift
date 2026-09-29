@@ -449,7 +449,13 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
 
         await input.yield(.activity(.speechBegan))
         await input.yield(.activity(.speechDuration(milliseconds: 179)))
-        await Task.yield()
+
+        // AsyncStream delivery is asynchronous. Waiting for the authoritative
+        // speech-start transition makes the pre-threshold assertion deterministic
+        // even when the full suite has other executor work queued.
+        while await runtime.state.conversation.turnState != .counterpartSpeaking {
+            await Task.yield()
+        }
 
         var state = await runtime.state
         let stopsBeforeThreshold = await speech.stops
