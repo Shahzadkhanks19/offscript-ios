@@ -545,7 +545,7 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let session = Task { try await coordinator.start() }
         while !(await input.streamReady) { await Task.yield() }
 
-        let record = try await runtime.send(.counterpartResponded("This playback fails"))
+        _ = try await runtime.send(.counterpartResponded("This playback fails"))
 
         // Exercise the failure path directly. Automatic runtime delivery is
         // already covered independently; this test owns failure recovery and
@@ -562,10 +562,6 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
 
         await coordinator.stop()
         try await session.value
-
-        // The committed record remains valid; automatic failure observability
-        // is intentionally not asserted here because its delivery is async.
-        XCTAssertFalse(record.event == .counterpartResponded(""))
     }
 
     func testStoppedCoordinatorDoesNotSpeakLaterRuntimeResponses() async throws {
