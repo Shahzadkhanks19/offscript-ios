@@ -733,11 +733,31 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let firstSession = Task { try await coordinator.start() }
         while await input.streamCount < 1 { await Task.yield() }
 
-        let record = try await runtime.send(.counterpartResponded("Failure bookkeeping"))
-        while await coordinator.automaticSpeechFailure(for: record.eventLog.last!.id) == nil {
+        let recordStream = AsyncStream<UUID> { continuation in
+            Task {
+                let observerID = await runtime.observe { record, _ in
+                    guard case .counterpartResponded = record.event else { return }
+                    continuation.yield(record.id)
+                }
+                continuation.onTermination = { _ in
+                    Task { await runtime.removeObserver(observerID) }
+                }
+            }
+        }
+        var recordIterator = recordStream.makeAsyncIterator()
+
+        _ = try await runtime.send(.counterpartResponded("Failure bookkeeping"))
+        guard let recordID = await recordIterator.next() else {
+            XCTFail("Expected committed counterpart response record")
+            await coordinator.stop()
+            await input.finish(streamID: 0)
+            try await firstSession.value
+            return
+        }
+
+        while await coordinator.automaticSpeechFailure(for: recordID) == nil {
             await Task.yield()
         }
-        let recordID = record.eventLog.last!.id
         XCTAssertNotNil(await coordinator.automaticSpeechFailure(for: recordID))
 
         await coordinator.stop()
