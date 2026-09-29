@@ -141,6 +141,32 @@ private actor SequencedSpeech: CounterpartSpeechService {
     }
 }
 
+private actor ControlledSpeech: CounterpartSpeechService {
+    private var firstContinuation: CheckedContinuation<Void, Error>?
+    private var firstPlaybackID: SpeechPlaybackID?
+    private(set) var spoken: [(String, SpeechPlaybackID)] = []
+    private(set) var stoppedPlaybackIDs: [SpeechPlaybackID?] = []
+
+    func speak(_ text: String, playbackID: SpeechPlaybackID) async throws {
+        spoken.append((text, playbackID))
+        if spoken.count == 1 {
+            firstPlaybackID = playbackID
+            try await withCheckedThrowingContinuation { continuation in
+                firstContinuation = continuation
+            }
+        }
+    }
+
+    func stop(playbackID: SpeechPlaybackID?) async {
+        stoppedPlaybackIDs.append(playbackID)
+        guard playbackID == firstPlaybackID else { return }
+        firstContinuation?.resume()
+        firstContinuation = nil
+    }
+
+    func hasStarted(_ count: Int) -> Bool { spoken.count >= count }
+}
+
 private enum SpeechTestError: Error { case playbackFailed }
 
 private actor FailingSpeech: CounterpartSpeechService {
@@ -607,6 +633,32 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
 
         let spoken = await speech.spoken
         XCTAssertTrue(spoken.isEmpty)
+    }
+
+    func testNewCommittedResponseSupersedesActiveAutomaticPlayback() async throws {
+        let input = StreamingVoiceInput()
+        let speech = ControlledSpeech()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
+
+        let session = Task { try await coordinator.start() }
+        while !(await input.streamReady) { await Task.yield() }
+
+        _ = try await runtime.send(.counterpartResponded("First automatic response"))
+        while !(await speech.hasStarted(1)) { await Task.yield() }
+
+        _ = try await runtime.send(.counterpartResponded("Replacement automatic response"))
+        while !(await speech.hasStarted(2)) { await Task.yield() }
+        while await runtime.state.conversation.turnState != .idle { await Task.yield() }
+
+        let spoken = await speech.spoken
+        let stopped = await speech.stoppedPlaybackIDs
+        XCTAssertEqual(spoken.map(\.0), ["First automatic response", "Replacement automatic response"])
+        XCTAssertEqual(stopped.first!, spoken.first!.1)
+        XCTAssertNotEqual(spoken.first!.1, spoken.last!.1)
+
+        await coordinator.stop()
+        try await session.value
     }
 
     func testCommittedResponsesAreConsumedInCommitOrder() async throws {
