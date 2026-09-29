@@ -7,7 +7,7 @@ private actor FakeVoiceInput: VoiceInputService {
         AsyncThrowingStream { $0.finish() }
     }
     func start() async throws {}
-    func stop(playbackID: SpeechPlaybackID?) async { stops += 1 }
+    func stop() async { stops += 1 }
 }
 
 private actor StreamingVoiceInput: VoiceInputService {
@@ -25,7 +25,7 @@ private actor StreamingVoiceInput: VoiceInputService {
 
     func start() async throws { starts += 1 }
 
-    func stop(playbackID: SpeechPlaybackID?) async {
+    func stop() async {
         stops += 1
         continuation?.finish()
         continuation = nil
@@ -57,7 +57,7 @@ private actor ScriptedVoiceInput: VoiceInputService {
     }
 
     func start() async throws {}
-    func stop(playbackID: SpeechPlaybackID?) async { stops += 1 }
+    func stop() async { stops += 1 }
 }
 
 private enum VoiceStreamTestError: Error { case failed }
@@ -78,7 +78,7 @@ private actor RestartableVoiceInput: VoiceInputService {
 
     func start() async throws { starts += 1 }
 
-    func stop(playbackID: SpeechPlaybackID?) async {
+    func stop() async {
         stops += 1
         // Deliberately do not finish streams: this fake proves the coordinator's
         // generation check rejects callbacks from an obsolete adapter stream.
