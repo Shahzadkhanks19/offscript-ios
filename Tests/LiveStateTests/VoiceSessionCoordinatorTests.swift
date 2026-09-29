@@ -661,6 +661,31 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         try await session.value
     }
 
+    func testStopCancelsActiveAutomaticPlaybackAndPreventsLaterCommittedSpeech() async throws {
+        let input = StreamingVoiceInput()
+        let speech = ControlledSpeech()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
+
+        let session = Task { try await coordinator.start() }
+        while !(await input.streamReady) { await Task.yield() }
+
+        _ = try await runtime.send(.counterpartResponded("Active automatic response"))
+        while !(await speech.hasStarted(1)) { await Task.yield() }
+
+        let activePlaybackID = await speech.spoken.first!.1
+        await coordinator.stop()
+        try await session.value
+
+        _ = try await runtime.send(.counterpartResponded("Must not play after stop"))
+        await Task.yield()
+
+        let spoken = await speech.spoken
+        let stopped = await speech.stoppedPlaybackIDs
+        XCTAssertEqual(spoken.map(\.0), ["Active automatic response"])
+        XCTAssertTrue(stopped.contains { $0 == activePlaybackID })
+    }
+
     func testCommittedResponsesAreConsumedInCommitOrder() async throws {
         let input = StreamingVoiceInput()
         let speech = FakeSpeech()
