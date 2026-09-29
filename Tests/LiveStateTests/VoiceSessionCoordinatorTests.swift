@@ -776,6 +776,36 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         try await secondSession.value
     }
 
+    func testSupersededAutomaticPlaybackFailureIsNotReportedAsDiagnostic() async throws {
+        let input = StreamingVoiceInput()
+        let speech = SupersededFailingSpeech()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
+
+        let session = Task { try await coordinator.start() }
+        while !(await input.streamReady) { await Task.yield() }
+
+        var committedRecordIDs: [UUID] = []
+        let observerID = await runtime.observe { record, _ in
+            guard case .counterpartResponded = record.event else { return }
+            committedRecordIDs.append(record.id)
+        }
+
+        _ = try await runtime.send(.counterpartResponded("First automatic response"))
+        while await speech.spoken.count < 1 { await Task.yield() }
+
+        _ = try await runtime.send(.counterpartResponded("Replacement automatic response"))
+        while await speech.spoken.count < 2 { await Task.yield() }
+        while committedRecordIDs.count < 2 { await Task.yield() }
+
+        let firstFailure = await coordinator.automaticSpeechFailure(for: committedRecordIDs[0])
+        XCTAssertNil(firstFailure)
+
+        await runtime.removeObserver(observerID)
+        await coordinator.stop()
+        try await session.value
+    }
+
     func testCommittedResponsesAreConsumedInCommitOrder() async throws {
         let input = StreamingVoiceInput()
         let speech = FakeSpeech()
