@@ -7,7 +7,7 @@ private actor FakeVoiceInput: VoiceInputService {
         AsyncThrowingStream { $0.finish() }
     }
     func start() async throws {}
-    func stop() async { stops += 1 }
+    func stop(playbackID: SpeechPlaybackID?) async { stops += 1 }
 }
 
 private actor StreamingVoiceInput: VoiceInputService {
@@ -25,7 +25,7 @@ private actor StreamingVoiceInput: VoiceInputService {
 
     func start() async throws { starts += 1 }
 
-    func stop() async {
+    func stop(playbackID: SpeechPlaybackID?) async {
         stops += 1
         continuation?.finish()
         continuation = nil
@@ -57,7 +57,7 @@ private actor ScriptedVoiceInput: VoiceInputService {
     }
 
     func start() async throws {}
-    func stop() async { stops += 1 }
+    func stop(playbackID: SpeechPlaybackID?) async { stops += 1 }
 }
 
 private enum VoiceStreamTestError: Error { case failed }
@@ -78,7 +78,7 @@ private actor RestartableVoiceInput: VoiceInputService {
 
     func start() async throws { starts += 1 }
 
-    func stop() async {
+    func stop(playbackID: SpeechPlaybackID?) async {
         stops += 1
         // Deliberately do not finish streams: this fake proves the coordinator's
         // generation check rejects callbacks from an obsolete adapter stream.
@@ -99,21 +99,21 @@ private actor RestartableVoiceInput: VoiceInputService {
 private actor FakeSpeech: CounterpartSpeechService {
     private(set) var spoken: [String] = []
     private(set) var stops = 0
-    func speak(_ text: String) async throws { spoken.append(text) }
-    func stop() async { stops += 1 }
+    func speak(_ text: String, playbackID: SpeechPlaybackID) async throws { spoken.append(text) }
+    func stop(playbackID: SpeechPlaybackID?) async { stops += 1 }
 }
 
 private actor SuspendedSpeech: CounterpartSpeechService {
     private var continuation: CheckedContinuation<Void, Error>?
     private(set) var stops = 0
 
-    func speak(_ text: String) async throws {
+    func speak(_ text: String, playbackID: SpeechPlaybackID) async throws {
         try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
         }
     }
 
-    func stop() async {
+    func stop(playbackID: SpeechPlaybackID?) async {
         stops += 1
         continuation?.resume()
         continuation = nil
@@ -125,7 +125,7 @@ private actor SequencedSpeech: CounterpartSpeechService {
     private(set) var spoken: [String] = []
     private(set) var stops = 0
 
-    func speak(_ text: String) async throws {
+    func speak(_ text: String, playbackID: SpeechPlaybackID) async throws {
         spoken.append(text)
         if spoken.count == 1 {
             try await withCheckedThrowingContinuation { continuation in
@@ -134,7 +134,7 @@ private actor SequencedSpeech: CounterpartSpeechService {
         }
     }
 
-    func stop() async {
+    func stop(playbackID: SpeechPlaybackID?) async {
         stops += 1
         firstContinuation?.resume()
         firstContinuation = nil
@@ -144,8 +144,8 @@ private actor SequencedSpeech: CounterpartSpeechService {
 private enum SpeechTestError: Error { case playbackFailed }
 
 private actor FailingSpeech: CounterpartSpeechService {
-    func speak(_ text: String) async throws { throw SpeechTestError.playbackFailed }
-    func stop() async {}
+    func speak(_ text: String, playbackID: SpeechPlaybackID) async throws { throw SpeechTestError.playbackFailed }
+    func stop(playbackID: SpeechPlaybackID?) async {}
 }
 
 private actor SupersededFailingSpeech: CounterpartSpeechService {
@@ -153,7 +153,7 @@ private actor SupersededFailingSpeech: CounterpartSpeechService {
     private(set) var spoken: [String] = []
     private(set) var stops = 0
 
-    func speak(_ text: String) async throws {
+    func speak(_ text: String, playbackID: SpeechPlaybackID) async throws {
         spoken.append(text)
         if spoken.count == 1 {
             try await withCheckedThrowingContinuation { continuation in
@@ -162,7 +162,7 @@ private actor SupersededFailingSpeech: CounterpartSpeechService {
         }
     }
 
-    func stop() async {
+    func stop(playbackID: SpeechPlaybackID?) async {
         stops += 1
         firstContinuation?.resume(throwing: SpeechTestError.playbackFailed)
         firstContinuation = nil
