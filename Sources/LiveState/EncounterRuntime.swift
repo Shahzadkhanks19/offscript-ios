@@ -21,7 +21,7 @@ public actor EncounterRuntime {
     public private(set) var pendingEffects: [PendingEffect] = []
     private let runner: EffectRunner
     private let journal: (any RuntimeJournal)?
-    private var observers: [UUID: @Sendable (EventRecord, EncounterState) async -> Void] = [:]
+    private var observers: [UUID: @Sendable (EventRecord, EncounterState) -> Void] = [:]
 
     public init(
         state: EncounterState = .init(),
@@ -81,9 +81,13 @@ public actor EncounterRuntime {
 
     /// Runtime observers receive already-persisted authoritative events. They
     /// are for ephemeral orchestration/presentation only and never mutate state.
+    /// Delivery is deliberately synchronous and non-suspending: observers may
+    /// enqueue work elsewhere, but the authoritative runtime never awaits
+    /// presentation/orchestration code and therefore cannot be re-entered while
+    /// a committed event is still being processed.
     @discardableResult
     public func observe(
-        _ observer: @escaping @Sendable (EventRecord, EncounterState) async -> Void
+        _ observer: @escaping @Sendable (EventRecord, EncounterState) -> Void
     ) -> UUID {
         let id = UUID()
         observers[id] = observer
@@ -192,7 +196,7 @@ public actor EncounterRuntime {
                 )
                 completionID = nil
                 state = reduction.state
-                await notifyObservers(record: eventRecord)
+                notifyObservers(record: eventRecord)
 
                 for intent in intents {
                     let produced: SimulationEvent?
@@ -226,7 +230,7 @@ public actor EncounterRuntime {
 
             _ = try await runner.run(.persistEvent(eventRecord), state: reduction.state)
             state = reduction.state
-            await notifyObservers(record: eventRecord)
+            notifyObservers(record: eventRecord)
 
             for (index, effect) in postCommitEffects.enumerated() {
                 let effectState = state
@@ -247,10 +251,10 @@ public actor EncounterRuntime {
         }
     }
 
-    private func notifyObservers(record: EventRecord) async {
+    private func notifyObservers(record: EventRecord) {
         let committedState = state
         for observer in observers.values {
-            await observer(record, committedState)
+            observer(record, committedState)
         }
     }
 }
