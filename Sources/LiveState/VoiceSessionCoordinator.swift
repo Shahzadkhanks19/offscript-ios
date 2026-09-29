@@ -11,6 +11,8 @@ public actor VoiceSessionCoordinator {
     private var speechGeneration: UInt64 = 0
     private var activeSpeechGeneration: UInt64?
     private var runtimeObserverID: UUID?
+    private var committedResponseContinuation: AsyncStream<(UUID, String)>.Continuation?
+    private var committedResponseConsumer: Task<Void, Never>?
     private var handledCounterpartResponseRecords: Set<UUID> = []
 
     public init(
@@ -33,15 +35,19 @@ public actor VoiceSessionCoordinator {
         activityGate.reset()
         bridge.reset()
         if runtimeObserverID == nil {
+            let (stream, continuation) = AsyncStream<(UUID, String)>.makeStream()
+            committedResponseContinuation = continuation
+            committedResponseConsumer = Task { [weak self] in
+                for await (recordID, text) in stream {
+                    guard let self else { return }
+                    await self.speakCommittedCounterpartResponse(text, recordID: recordID)
+                }
+            }
             runtimeObserverID = await runtime.observe { record, _ in
                 guard case let .counterpartResponded(text) = record.event else { return }
-                // Runtime observer delivery is intentionally non-suspending.
-                // Hop onto an unstructured task before crossing back into this
-                // actor so presentation/TTS work can never re-enter a runtime
-                // commit that is still on its call stack.
-                Task {
-                    await self.speakCommittedCounterpartResponse(text, recordID: record.id)
-                }
+                // Runtime observation stays synchronous/non-suspending while a
+                // single consumer preserves committed-event delivery order.
+                continuation.yield((record.id, text))
             }
         }
         runGeneration &+= 1
@@ -130,6 +136,10 @@ public actor VoiceSessionCoordinator {
             await runtime.removeObserver(runtimeObserverID)
             self.runtimeObserverID = nil
         }
+        committedResponseContinuation?.finish()
+        committedResponseContinuation = nil
+        committedResponseConsumer?.cancel()
+        committedResponseConsumer = nil
     }
 
     private func speakCommittedCounterpartResponse(_ text: String, recordID: UUID) async {
