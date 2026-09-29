@@ -9,6 +9,7 @@ public actor VoiceSessionCoordinator {
     private var isRunning = false
     private var runGeneration: UInt64 = 0
     private var speechGeneration: UInt64 = 0
+    private var activeSpeechGeneration: UInt64?
     private var runtimeObserverID: UUID?
     private var handledCounterpartResponseRecords: Set<UUID> = []
 
@@ -88,6 +89,7 @@ public actor VoiceSessionCoordinator {
             runGeneration &+= 1
         }
         speechGeneration &+= 1
+        activeSpeechGeneration = nil
         activityGate.reset()
         bridge.reset()
         await detachRuntimeObserver()
@@ -143,19 +145,25 @@ public actor VoiceSessionCoordinator {
         speechGeneration &+= 1
         let generation = speechGeneration
 
-        let beforeStart = await runtime.state
-        if beforeStart.conversation.turnState == .counterpartSpeaking {
+        // Transport ownership is coordinator state, not encounter turn state.
+        // A newly committed counterpart response may legitimately change the
+        // authoritative turn state before the older TTS transport has stopped.
+        // Therefore supersession must follow the active playback generation.
+        if activeSpeechGeneration != nil {
             await speech.stop()
             guard generation == speechGeneration else { return }
         }
 
+        activeSpeechGeneration = generation
         _ = try await runtime.send(.counterpartSpeechStarted)
         do {
             try await speech.speak(text)
             guard generation == speechGeneration else { return }
+            activeSpeechGeneration = nil
             _ = try await runtime.send(.counterpartSpeechFinished)
         } catch {
             guard generation == speechGeneration else { throw error }
+            activeSpeechGeneration = nil
             _ = try? await runtime.send(.counterpartSpeechCancelled)
             throw error
         }
