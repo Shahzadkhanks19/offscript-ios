@@ -575,6 +575,11 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         while await speech.spoken.isEmpty { await Task.yield() }
 
         _ = try await runtime.send(.counterpartResponded("Newer committed response"))
+
+        // Committed-event observation deliberately crosses an asynchronous
+        // boundary. Wait for the coordinator to consume the newer committed
+        // record before asserting playback ownership.
+        while await speech.spoken.count < 2 { await Task.yield() }
         try await first.value
 
         let spoken = await speech.spoken
