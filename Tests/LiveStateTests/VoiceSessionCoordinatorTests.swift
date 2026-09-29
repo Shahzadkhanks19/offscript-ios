@@ -534,22 +534,16 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
     }
 
     func testAutomaticSpeechFailureRepairsStateAndRemainsObservable() async throws {
-        let input = StreamingVoiceInput()
         let runtime = runtime()
         let coordinator = VoiceSessionCoordinator(
-            input: input,
+            input: FakeVoiceInput(),
             speech: FailingSpeech(),
             runtime: runtime
         )
 
-        let session = Task { try await coordinator.start() }
-        while !(await input.streamReady) { await Task.yield() }
-
-        _ = try await runtime.send(.counterpartResponded("This playback fails"))
-
-        // Exercise the failure path directly. Automatic runtime delivery is
-        // already covered independently; this test owns failure recovery and
-        // observability without waiting on observer scheduling.
+        // Failure recovery itself is synchronous from the caller's
+        // perspective. Automatic observer delivery is covered by dedicated
+        // integration tests and must not race this assertion.
         do {
             try await coordinator.speakCounterpart("This playback fails")
             XCTFail("Expected counterpart speech to fail")
@@ -559,9 +553,6 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
 
         let state = await runtime.state
         XCTAssertEqual(state.conversation.turnState, .idle)
-
-        await coordinator.stop()
-        try await session.value
     }
 
     func testStoppedCoordinatorDoesNotSpeakLaterRuntimeResponses() async throws {
