@@ -42,7 +42,7 @@ public actor VoiceSessionCoordinator {
             committedResponseConsumer = Task { [weak self] in
                 for await (recordID, text) in stream {
                     guard let self else { return }
-                    await self.speakCommittedCounterpartResponse(text, recordID: recordID)
+                    await self.enqueueCommittedCounterpartResponse(text, recordID: recordID)
                 }
             }
             runtimeObserverID = await runtime.observe { record, _ in
@@ -149,9 +149,20 @@ public actor VoiceSessionCoordinator {
         committedResponseConsumer = nil
     }
 
-    private func speakCommittedCounterpartResponse(_ text: String, recordID: UUID) async {
+    /// Accepts committed responses in event order without making ingestion
+    /// wait for long-lived TTS transport. Playback itself is independently
+    /// replaceable: a newer committed response can enter the coordinator and
+    /// supersede the currently active playback by SpeechPlaybackID.
+    private func enqueueCommittedCounterpartResponse(_ text: String, recordID: UUID) {
         guard isRunning else { return }
         guard handledCounterpartResponseRecords.insert(recordID).inserted else { return }
+
+        Task { [weak self] in
+            await self?.speakCommittedCounterpartResponse(text, recordID: recordID)
+        }
+    }
+
+    private func speakCommittedCounterpartResponse(_ text: String, recordID: UUID) async {
         do {
             try await speakCounterpart(text)
             automaticSpeechFailures[recordID] = nil
@@ -160,8 +171,7 @@ public actor VoiceSessionCoordinator {
             // speakCounterpart before the transport error reaches this layer.
             // Keep the failure observable instead of silently swallowing it;
             // UI/adapters can decide whether to offer retry or fallback audio.
-            let failure = String(describing: error)
-            automaticSpeechFailures[recordID] = failure
+            automaticSpeechFailures[recordID] = String(describing: error)
         }
     }
 
