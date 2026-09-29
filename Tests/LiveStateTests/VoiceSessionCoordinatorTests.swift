@@ -515,6 +515,13 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
 
         while await speech.spoken.isEmpty { await Task.yield() }
 
+        // The committed-response observer intentionally dispatches TTS across
+        // an asynchronous boundary. Playback becoming visible in the transport
+        // does not mean its authoritative completion event has committed yet.
+        while await runtime.state.conversation.turnState != .idle {
+            await Task.yield()
+        }
+
         let spoken = await speech.spoken
         let state = await runtime.state
         XCTAssertEqual(spoken, ["Follow-up"])
