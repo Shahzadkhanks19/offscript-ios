@@ -582,6 +582,13 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         while await speech.spoken.count < 2 { await Task.yield() }
         try await first.value
 
+        // Seeing the replacement text only proves that transport playback
+        // started. Its completion still has to flow through the coordinator
+        // and commit counterpartSpeechFinished before LiveState becomes idle.
+        while await runtime.state.conversation.turnState != .idle {
+            await Task.yield()
+        }
+
         let spoken = await speech.spoken
         let stops = await speech.stops
         let state = await runtime.state
