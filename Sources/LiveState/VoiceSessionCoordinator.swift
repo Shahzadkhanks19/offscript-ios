@@ -36,6 +36,12 @@ public actor VoiceSessionCoordinator {
         isRunning = true
         activityGate.reset()
         bridge.reset()
+        // Automatic speech bookkeeping belongs to one capture session. Runtime
+        // record IDs deduplicate observer delivery only while that session is
+        // alive; failures are likewise presentation diagnostics, not durable
+        // encounter history.
+        handledCounterpartResponseRecords.removeAll(keepingCapacity: true)
+        automaticSpeechFailures.removeAll(keepingCapacity: true)
         if runtimeObserverID == nil {
             let (stream, continuation) = AsyncStream<(UUID, String)>.makeStream()
             committedResponseContinuation = continuation
