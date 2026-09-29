@@ -686,6 +686,41 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         XCTAssertTrue(stopped.contains { $0 == activePlaybackID })
     }
 
+    func testRestartPreventsOldAutomaticPlaybackFromOwningNewSession() async throws {
+        let input = RestartableVoiceInput()
+        let speech = ControlledSpeech()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
+
+        let firstSession = Task { try await coordinator.start() }
+        while await input.streamCount < 1 { await Task.yield() }
+
+        _ = try await runtime.send(.counterpartResponded("Old session response"))
+        while !(await speech.hasStarted(1)) { await Task.yield() }
+        let oldPlaybackID = await speech.spoken.first!.1
+
+        await coordinator.stop()
+        await input.finish(streamID: 0)
+        try await firstSession.value
+
+        let secondSession = Task { try await coordinator.start() }
+        while await input.streamCount < 2 { await Task.yield() }
+
+        _ = try await runtime.send(.counterpartResponded("New session response"))
+        while !(await speech.hasStarted(2)) { await Task.yield() }
+        while await runtime.state.conversation.turnState != .idle { await Task.yield() }
+
+        let spoken = await speech.spoken
+        let stopped = await speech.stoppedPlaybackIDs
+        XCTAssertEqual(spoken.map(\.0), ["Old session response", "New session response"])
+        XCTAssertTrue(stopped.contains { $0 == oldPlaybackID })
+        XCTAssertNotEqual(spoken[0].1, spoken[1].1)
+
+        await coordinator.stop()
+        await input.finish(streamID: 1)
+        try await secondSession.value
+    }
+
     func testCommittedResponsesAreConsumedInCommitOrder() async throws {
         let input = StreamingVoiceInput()
         let speech = FakeSpeech()
