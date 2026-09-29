@@ -8,6 +8,7 @@ public struct VoiceTurnBridge: Equatable, Sendable {
     private var pendingUtteranceFinal: String?
     private var latestTranscriptRevision: UInt64?
     private var activeUtteranceID: UInt64?
+    private var utteranceActive: Bool
     private var closedUtteranceIDs: Set<UInt64>
 
     public init(input: VoiceInputState = .init()) {
@@ -15,6 +16,7 @@ public struct VoiceTurnBridge: Equatable, Sendable {
         self.pendingUtteranceFinal = nil
         self.latestTranscriptRevision = nil
         self.activeUtteranceID = nil
+        self.utteranceActive = false
         self.closedUtteranceIDs = []
     }
 
@@ -25,6 +27,7 @@ public struct VoiceTurnBridge: Equatable, Sendable {
         pendingUtteranceFinal = nil
         latestTranscriptRevision = nil
         activeUtteranceID = nil
+        utteranceActive = false
         closedUtteranceIDs.removeAll(keepingCapacity: true)
     }
 
@@ -32,9 +35,23 @@ public struct VoiceTurnBridge: Equatable, Sendable {
         _ event: VoiceInputEvent,
         encounter: EncounterState
     ) -> [SimulationEvent] {
-        input = VoiceInputReducer.reduce(state: input, event: event)
-
+        // Reject callbacks that cannot belong to the current semantic utterance
+        // before they are allowed to mutate ephemeral presentation state.
         guard encounter.lifecycle == .active else { return [] }
+        if case let .transcript(transcript) = event {
+            guard utteranceActive else { return [] }
+            if let utteranceID = transcript.utteranceID {
+                guard !closedUtteranceIDs.contains(utteranceID) else { return [] }
+                if let activeUtteranceID {
+                    guard activeUtteranceID == utteranceID else { return [] }
+                }
+            }
+            if let latestTranscriptRevision, transcript.revision < latestTranscriptRevision {
+                return []
+            }
+        }
+
+        input = VoiceInputReducer.reduce(state: input, event: event)
 
         switch event {
         case .speechStarted:
@@ -42,19 +59,12 @@ public struct VoiceTurnBridge: Equatable, Sendable {
             pendingUtteranceFinal = nil
             latestTranscriptRevision = nil
             activeUtteranceID = nil
+            utteranceActive = true
             return [.userSpeechStarted]
 
         case let .transcript(transcript):
-            if let utteranceID = transcript.utteranceID {
-                guard !closedUtteranceIDs.contains(utteranceID) else { return [] }
-                if let activeUtteranceID {
-                    guard activeUtteranceID == utteranceID else { return [] }
-                } else {
-                    activeUtteranceID = utteranceID
-                }
-            }
-            if let latestTranscriptRevision, transcript.revision < latestTranscriptRevision {
-                return []
+            if let utteranceID = transcript.utteranceID, activeUtteranceID == nil {
+                activeUtteranceID = utteranceID
             }
             latestTranscriptRevision = transcript.revision
             guard transcript.isFinal else { return [] }
@@ -65,6 +75,7 @@ public struct VoiceTurnBridge: Equatable, Sendable {
 
         case .speechEnded:
             closeActiveUtterance()
+            utteranceActive = false
             guard let text = pendingUtteranceFinal else {
                 return [.userSpeechEnded]
             }
@@ -73,6 +84,7 @@ public struct VoiceTurnBridge: Equatable, Sendable {
 
         case .silenceStarted:
             closeActiveUtterance()
+            utteranceActive = false
             guard let text = pendingUtteranceFinal else {
                 return [.userSilenceStarted]
             }
@@ -84,6 +96,7 @@ public struct VoiceTurnBridge: Equatable, Sendable {
             pendingUtteranceFinal = nil
             latestTranscriptRevision = nil
             activeUtteranceID = nil
+            utteranceActive = true
             guard encounter.conversation.turnState == .counterpartSpeaking else {
                 return [.userSpeechStarted]
             }
