@@ -117,7 +117,14 @@ public protocol VoiceInputService: Sendable {
     func stop() async
 }
 
+public struct SpeechPlaybackID: Hashable, Sendable, Codable {
+    public let rawValue: UInt64
+    public init(rawValue: UInt64) { self.rawValue = rawValue }
+}
+
 public protocol CounterpartSpeechService: Sendable {
-    func speak(_ text: String) async throws
-    func stop() async
+    func speak(_ text: String, playbackID: SpeechPlaybackID) async throws
+    /// Stops only the identified playback when supplied. A nil ID means stop
+    /// any transport playback owned by this voice session.
+    func stop(playbackID: SpeechPlaybackID?) async
 }
