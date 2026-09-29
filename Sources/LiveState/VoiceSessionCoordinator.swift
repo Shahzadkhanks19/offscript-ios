@@ -16,6 +16,7 @@ public actor VoiceSessionCoordinator {
     private var committedResponseConsumer: Task<Void, Never>?
     private var handledCounterpartResponseRecords: Set<UUID> = []
     private var automaticSpeechFailures: [UUID: String] = [:]
+    private var automaticSpeechFailureWaiters: [UUID: [CheckedContinuation<String, Never>]] = [:]
 
     public init(
         input: any VoiceInputService,
@@ -160,12 +161,26 @@ public actor VoiceSessionCoordinator {
             // speakCounterpart before the transport error reaches this layer.
             // Keep the failure observable instead of silently swallowing it;
             // UI/adapters can decide whether to offer retry or fallback audio.
-            automaticSpeechFailures[recordID] = String(describing: error)
+            let failure = String(describing: error)
+            automaticSpeechFailures[recordID] = failure
+            let waiters = automaticSpeechFailureWaiters.removeValue(forKey: recordID) ?? []
+            for waiter in waiters {
+                waiter.resume(returning: failure)
+            }
         }
     }
 
     public func automaticSpeechFailure(for recordID: UUID) -> String? {
         automaticSpeechFailures[recordID]
+    }
+
+    public func awaitAutomaticSpeechFailure(for recordID: UUID) async -> String {
+        if let failure = automaticSpeechFailures[recordID] {
+            return failure
+        }
+        return await withCheckedContinuation { continuation in
+            automaticSpeechFailureWaiters[recordID, default: []].append(continuation)
+        }
     }
 
     public func speakCounterpart(_ text: String) async throws {
