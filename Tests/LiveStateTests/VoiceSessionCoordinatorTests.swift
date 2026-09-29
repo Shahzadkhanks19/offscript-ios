@@ -546,9 +546,11 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         while !(await input.streamReady) { await Task.yield() }
 
         let record = try await runtime.send(.counterpartResponded("This playback fails"))
-        while await coordinator.automaticSpeechFailure(for: record.id) == nil {
-            await Task.yield()
-        }
+
+        // FailingSpeech completes synchronously once the ordered observer
+        // consumer receives this committed record. Yield once to let that
+        // already-enqueued consumer run; if it did not, fail rather than spin.
+        await Task.yield()
 
         let state = await runtime.state
         let failure = await coordinator.automaticSpeechFailure(for: record.id)
