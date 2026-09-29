@@ -721,6 +721,39 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         try await secondSession.value
     }
 
+    func testRestartClearsSessionScopedAutomaticSpeechFailureBookkeeping() async throws {
+        let input = RestartableVoiceInput()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(
+            input: input,
+            speech: FailingSpeech(),
+            runtime: runtime
+        )
+
+        let firstSession = Task { try await coordinator.start() }
+        while await input.streamCount < 1 { await Task.yield() }
+
+        let record = try await runtime.send(.counterpartResponded("Failure bookkeeping"))
+        while await coordinator.automaticSpeechFailure(for: record.eventLog.last!.id) == nil {
+            await Task.yield()
+        }
+        let recordID = record.eventLog.last!.id
+        XCTAssertNotNil(await coordinator.automaticSpeechFailure(for: recordID))
+
+        await coordinator.stop()
+        await input.finish(streamID: 0)
+        try await firstSession.value
+
+        let secondSession = Task { try await coordinator.start() }
+        while await input.streamCount < 2 { await Task.yield() }
+
+        XCTAssertNil(await coordinator.automaticSpeechFailure(for: recordID))
+
+        await coordinator.stop()
+        await input.finish(streamID: 1)
+        try await secondSession.value
+    }
+
     func testCommittedResponsesAreConsumedInCommitOrder() async throws {
         let input = StreamingVoiceInput()
         let speech = FakeSpeech()
