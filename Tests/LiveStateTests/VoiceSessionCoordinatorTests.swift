@@ -533,6 +533,32 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         try await session.value
     }
 
+    func testAutomaticSpeechFailureRepairsStateAndRemainsObservable() async throws {
+        let input = StreamingVoiceInput()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(
+            input: input,
+            speech: FailingSpeech(),
+            runtime: runtime
+        )
+
+        let session = Task { try await coordinator.start() }
+        while !(await input.streamReady) { await Task.yield() }
+
+        let record = try await runtime.send(.counterpartResponded("This playback fails"))
+        while await coordinator.automaticSpeechFailure(for: record.id) == nil {
+            await Task.yield()
+        }
+
+        let state = await runtime.state
+        let failure = await coordinator.automaticSpeechFailure(for: record.id)
+        XCTAssertEqual(state.conversation.turnState, .idle)
+        XCTAssertNotNil(failure)
+
+        await coordinator.stop()
+        try await session.value
+    }
+
     func testStoppedCoordinatorDoesNotSpeakLaterRuntimeResponses() async throws {
         let input = StreamingVoiceInput()
         let speech = FakeSpeech()
