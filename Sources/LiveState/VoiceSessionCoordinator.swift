@@ -10,6 +10,7 @@ public actor VoiceSessionCoordinator {
     private var runGeneration: UInt64 = 0
     private var speechGeneration: UInt64 = 0
     private var activeSpeechGeneration: UInt64?
+    private var activePlaybackID: SpeechPlaybackID?
     private var runtimeObserverID: UUID?
     private var committedResponseContinuation: AsyncStream<(UUID, String)>.Continuation?
     private var committedResponseConsumer: Task<Void, Never>?
@@ -96,6 +97,8 @@ public actor VoiceSessionCoordinator {
         }
         speechGeneration &+= 1
         activeSpeechGeneration = nil
+        let playbackID = activePlaybackID
+        activePlaybackID = nil
         activityGate.reset()
         bridge.reset()
         await detachRuntimeObserver()
@@ -103,7 +106,7 @@ public actor VoiceSessionCoordinator {
         // Stopping is deliberately idempotent at the coordinator boundary:
         // adapters must tolerate stop even when capture has not started.
         await input.stop()
-        await speech.stop()
+        await speech.stop(playbackID: playbackID)
     }
 
     public func handle(_ inputEvent: VoiceInputEvent) async throws {
@@ -111,7 +114,10 @@ public actor VoiceSessionCoordinator {
         let events = bridge.receive(inputEvent, encounter: before)
         if inputEvent == .interruptedCounterpart, before.conversation.turnState == .counterpartSpeaking {
             speechGeneration &+= 1
-            await speech.stop()
+            let playbackID = activePlaybackID
+            activeSpeechGeneration = nil
+            activePlaybackID = nil
+            await speech.stop(playbackID: playbackID)
         }
         for event in events {
             _ = try await runtime.send(event)
@@ -154,26 +160,31 @@ public actor VoiceSessionCoordinator {
 
         speechGeneration &+= 1
         let generation = speechGeneration
+        let playbackID = SpeechPlaybackID(rawValue: generation)
 
         // Transport ownership is coordinator state, not encounter turn state.
         // A newly committed counterpart response may legitimately change the
         // authoritative turn state before the older TTS transport has stopped.
         // Therefore supersession must follow the active playback generation.
         if activeSpeechGeneration != nil {
-            await speech.stop()
+            let supersededPlaybackID = activePlaybackID
+            await speech.stop(playbackID: supersededPlaybackID)
             guard generation == speechGeneration else { return }
         }
 
         activeSpeechGeneration = generation
+        activePlaybackID = playbackID
         _ = try await runtime.send(.counterpartSpeechStarted)
         do {
-            try await speech.speak(text)
+            try await speech.speak(text, playbackID: playbackID)
             guard generation == speechGeneration else { return }
             activeSpeechGeneration = nil
+            activePlaybackID = nil
             _ = try await runtime.send(.counterpartSpeechFinished)
         } catch {
             guard generation == speechGeneration else { throw error }
             activeSpeechGeneration = nil
+            activePlaybackID = nil
             _ = try? await runtime.send(.counterpartSpeechCancelled)
             throw error
         }
