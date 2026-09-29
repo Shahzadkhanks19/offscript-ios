@@ -202,6 +202,7 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
     func testPartialTranscriptRemainsEphemeral() async throws {
         let runtime = runtime()
         let coordinator = VoiceSessionCoordinator(input: FakeVoiceInput(), speech: FakeSpeech(), runtime: runtime)
+        try await coordinator.handle(.speechStarted)
         try await coordinator.handle(.transcript(.init(text: "partial", isFinal: false)))
         let state = await runtime.state
         let voiceState = await coordinator.voiceState
