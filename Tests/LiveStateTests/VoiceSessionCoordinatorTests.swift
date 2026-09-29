@@ -38,6 +38,28 @@ private actor StreamingVoiceInput: VoiceInputService {
     }
 }
 
+private actor ScriptedVoiceInput: VoiceInputService {
+    private let script: [VoiceCaptureEvent]
+    private(set) var stops = 0
+
+    init(_ script: [VoiceCaptureEvent]) {
+        self.script = script
+    }
+
+    func events() async -> AsyncThrowingStream<VoiceCaptureEvent, Error> {
+        let script = self.script
+        return AsyncThrowingStream { continuation in
+            for event in script {
+                continuation.yield(event)
+            }
+            continuation.finish()
+        }
+    }
+
+    func start() async throws {}
+    func stop() async { stops += 1 }
+}
+
 private enum VoiceStreamTestError: Error { case failed }
 
 private actor RestartableVoiceInput: VoiceInputService {
@@ -437,7 +459,11 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         var initial = EncounterState(lifecycle: .active)
         initial.conversation.turnState = .counterpartSpeaking
         let runtime = runtime(initial)
-        let input = StreamingVoiceInput()
+        let input = ScriptedVoiceInput([
+            .activity(.speechBegan),
+            .activity(.speechDuration(milliseconds: 179)),
+            .activity(.speechDuration(milliseconds: 180))
+        ])
         let speech = FakeSpeech()
         let coordinator = VoiceSessionCoordinator(
             input: input,
@@ -446,35 +472,20 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
             activityGate: .init(policy: .init(bargeInMilliseconds: 180))
         )
 
-        let session = Task { try await coordinator.start() }
-        while !(await input.streamReady) { await Task.yield() }
+        // This integration test deliberately uses a finite capture stream.
+        // Threshold semantics below 180 ms are already proven by
+        // VoiceActivityGateTests; here we prove that raw capture observations
+        // crossing the coordinator boundary produce exactly one semantic
+        // interruption without relying on scheduler timing or polling.
+        try await coordinator.start()
 
-        await input.yield(.activity(.speechBegan))
-        await input.yield(.activity(.speechDuration(milliseconds: 179)))
-
-        // AsyncStream delivery is asynchronous. Waiting for the authoritative
-        // speech-start transition makes the pre-threshold assertion deterministic
-        // even when the full suite has other executor work queued.
-        while await runtime.state.conversation.turnState != .counterpartSpeaking {
-            await Task.yield()
-        }
-
-        var state = await runtime.state
-        let stopsBeforeThreshold = await speech.stops
-        XCTAssertEqual(state.conversation.turnState, .counterpartSpeaking)
-        XCTAssertEqual(stopsBeforeThreshold, 0)
-
-        await input.yield(.activity(.speechDuration(milliseconds: 180)))
-        while await runtime.state.user.interruptions == 0 { await Task.yield() }
-        while await runtime.state.conversation.turnState != .userSpeaking { await Task.yield() }
-
-        state = await runtime.state
-        let stopsAfterThreshold = await speech.stops
+        let state = await runtime.state
+        let speechStops = await speech.stops
+        let inputStops = await input.stops
+        XCTAssertEqual(state.user.interruptions, 1)
         XCTAssertEqual(state.conversation.turnState, .userSpeaking)
-        XCTAssertEqual(stopsAfterThreshold, 1)
-
-        await coordinator.stop()
-        try await session.value
+        XCTAssertEqual(speechStops, 1)
+        XCTAssertEqual(inputStops, 1)
     }
 
     func testStopStopsBothVoiceDirections() async {
