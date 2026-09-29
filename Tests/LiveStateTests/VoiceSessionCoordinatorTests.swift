@@ -785,23 +785,40 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let session = Task { try await coordinator.start() }
         while !(await input.streamReady) { await Task.yield() }
 
-        var committedRecordIDs: [UUID] = []
-        let observerID = await runtime.observe { record, _ in
-            guard case .counterpartResponded = record.event else { return }
-            committedRecordIDs.append(record.id)
+        let recordStream = AsyncStream<UUID> { continuation in
+            Task {
+                let observerID = await runtime.observe { record, _ in
+                    guard case .counterpartResponded = record.event else { return }
+                    continuation.yield(record.id)
+                }
+                continuation.onTermination = { _ in
+                    Task { await runtime.removeObserver(observerID) }
+                }
+            }
         }
+        var recordIterator = recordStream.makeAsyncIterator()
 
         _ = try await runtime.send(.counterpartResponded("First automatic response"))
+        guard let firstRecordID = await recordIterator.next() else {
+            XCTFail("Expected first committed counterpart response record")
+            await coordinator.stop()
+            try await session.value
+            return
+        }
         while await speech.spoken.count < 1 { await Task.yield() }
 
         _ = try await runtime.send(.counterpartResponded("Replacement automatic response"))
+        guard await recordIterator.next() != nil else {
+            XCTFail("Expected replacement committed counterpart response record")
+            await coordinator.stop()
+            try await session.value
+            return
+        }
         while await speech.spoken.count < 2 { await Task.yield() }
-        while committedRecordIDs.count < 2 { await Task.yield() }
 
-        let firstFailure = await coordinator.automaticSpeechFailure(for: committedRecordIDs[0])
+        let firstFailure = await coordinator.automaticSpeechFailure(for: firstRecordID)
         XCTAssertNil(firstFailure)
 
-        await runtime.removeObserver(observerID)
         await coordinator.stop()
         try await session.value
     }
