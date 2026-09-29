@@ -170,13 +170,19 @@ public actor VoiceSessionCoordinator {
 
     private func speakCommittedCounterpartResponse(_ text: String, recordID: UUID) async {
         do {
-            try await speakCounterpart(text)
+            let generation = try await performCounterpartSpeech(text)
+            guard generation == speechGeneration else { return }
             automaticSpeechFailures[recordID] = nil
+        } catch let failure as CounterpartSpeechAttemptFailure {
+            guard failure.generation == speechGeneration else {
+                // A newer playback intentionally superseded this attempt.
+                // Its transport may report cancellation as an error, but that
+                // is expected control flow rather than a user-visible failure.
+                automaticSpeechFailures[recordID] = nil
+                return
+            }
+            automaticSpeechFailures[recordID] = String(describing: failure.underlying)
         } catch {
-            // The authoritative speech lifecycle is repaired by
-            // speakCounterpart before the transport error reaches this layer.
-            // Keep the failure observable instead of silently swallowing it;
-            // UI/adapters can decide whether to offer retry or fallback audio.
             automaticSpeechFailures[recordID] = String(describing: error)
         }
     }
@@ -185,9 +191,15 @@ public actor VoiceSessionCoordinator {
         automaticSpeechFailures[recordID]
     }
 
-    public func speakCounterpart(_ text: String) async throws {
+    private struct CounterpartSpeechAttemptFailure: Error {
+        let generation: UInt64
+        let underlying: any Error
+    }
+
+    @discardableResult
+    private func performCounterpartSpeech(_ text: String) async throws -> UInt64 {
         let current = await runtime.state
-        guard current.lifecycle == .active else { return }
+        guard current.lifecycle == .active else { return speechGeneration }
 
         speechGeneration &+= 1
         let generation = speechGeneration
@@ -200,7 +212,7 @@ public actor VoiceSessionCoordinator {
         if activeSpeechGeneration != nil {
             let supersededPlaybackID = activePlaybackID
             await speech.stop(playbackID: supersededPlaybackID)
-            guard generation == speechGeneration else { return }
+            guard generation == speechGeneration else { return generation }
         }
 
         activeSpeechGeneration = generation
@@ -208,16 +220,27 @@ public actor VoiceSessionCoordinator {
         _ = try await runtime.send(.counterpartSpeechStarted)
         do {
             try await speech.speak(text, playbackID: playbackID)
-            guard generation == speechGeneration else { return }
+            guard generation == speechGeneration else { return generation }
             activeSpeechGeneration = nil
             activePlaybackID = nil
             _ = try await runtime.send(.counterpartSpeechFinished)
+            return generation
         } catch {
-            guard generation == speechGeneration else { throw error }
+            guard generation == speechGeneration else {
+                throw CounterpartSpeechAttemptFailure(generation: generation, underlying: error)
+            }
             activeSpeechGeneration = nil
             activePlaybackID = nil
             _ = try? await runtime.send(.counterpartSpeechCancelled)
-            throw error
+            throw CounterpartSpeechAttemptFailure(generation: generation, underlying: error)
+        }
+    }
+
+    public func speakCounterpart(_ text: String) async throws {
+        do {
+            _ = try await performCounterpartSpeech(text)
+        } catch let failure as CounterpartSpeechAttemptFailure {
+            throw failure.underlying
         }
     }
 
