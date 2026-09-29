@@ -15,7 +15,7 @@ public actor VoiceSessionCoordinator {
     private var committedResponseContinuation: AsyncStream<(UUID, String)>.Continuation?
     private var committedResponseConsumer: Task<Void, Never>?
     private var handledCounterpartResponseRecords: Set<UUID> = []
-    private var automaticSpeechFailures: [UUID: String] = []
+    private var automaticSpeechFailures: [UUID: String] = [:]
 
     public init(
         input: any VoiceInputService,
