@@ -817,10 +817,19 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let firstSession = Task { try await coordinator.start() }
-        while await input.streamCount < 1 { await Task.yield() }
+        let firstDeadline = ContinuousClock.now + .seconds(2)
+        while await input.streamCount < 1, ContinuousClock.now < firstDeadline {
+            await Task.yield()
+        }
+        let firstStreamCount = await input.streamCount
+        XCTAssertEqual(firstStreamCount, 1)
 
         _ = try await runtime.send(.counterpartResponded("Old session response"))
-        while !(await speech.hasStarted(1)) { await Task.yield() }
+        while !(await speech.hasStarted(1)), ContinuousClock.now < firstDeadline {
+            await Task.yield()
+        }
+        let oldPlaybackStarted = await speech.hasStarted(1)
+        XCTAssertTrue(oldPlaybackStarted)
         let oldPlaybackID = await speech.spoken.first!.1
 
         await coordinator.stop()
@@ -828,11 +837,23 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         try await firstSession.value
 
         let secondSession = Task { try await coordinator.start() }
-        while await input.streamCount < 2 { await Task.yield() }
+        let secondDeadline = ContinuousClock.now + .seconds(2)
+        while await input.streamCount < 2, ContinuousClock.now < secondDeadline {
+            await Task.yield()
+        }
+        let secondStreamCount = await input.streamCount
+        XCTAssertEqual(secondStreamCount, 2)
 
         _ = try await runtime.send(.counterpartResponded("New session response"))
-        while !(await speech.hasStarted(2)) { await Task.yield() }
-        while await runtime.state.conversation.turnState != .idle { await Task.yield() }
+        while !(await speech.hasStarted(2)), ContinuousClock.now < secondDeadline {
+            await Task.yield()
+        }
+        let newPlaybackStarted = await speech.hasStarted(2)
+        XCTAssertTrue(newPlaybackStarted)
+        while await runtime.state.conversation.turnState != .idle,
+              ContinuousClock.now < secondDeadline {
+            await Task.yield()
+        }
 
         let spoken = await speech.spoken
         let stopped = await speech.stoppedPlaybackIDs
