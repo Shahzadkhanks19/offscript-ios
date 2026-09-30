@@ -445,7 +445,12 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: FakeSpeech(), runtime: runtime())
 
         let session = Task { try await coordinator.start() }
-        while !(await input.streamReady) { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !(await input.streamReady), ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        let streamReady = await input.streamReady
+        XCTAssertTrue(streamReady)
         await input.fail(VoiceStreamTestError.failed)
 
         do {
@@ -467,12 +472,22 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         )
 
         let first = Task { try await coordinator.start() }
-        while await input.streamCount < 1 { await Task.yield() }
+        let firstDeadline = ContinuousClock.now + .seconds(2)
+        while await input.streamCount < 1, ContinuousClock.now < firstDeadline {
+            await Task.yield()
+        }
+        let firstStreamCount = await input.streamCount
+        XCTAssertEqual(firstStreamCount, 1)
 
         await coordinator.stop()
 
         let second = Task { try await coordinator.start() }
-        while await input.streamCount < 2 { await Task.yield() }
+        let secondDeadline = ContinuousClock.now + .seconds(2)
+        while await input.streamCount < 2, ContinuousClock.now < secondDeadline {
+            await Task.yield()
+        }
+        let secondStreamCount = await input.streamCount
+        XCTAssertEqual(secondStreamCount, 2)
 
         await input.yield(.transcript(.init(text: "obsolete", isFinal: true)), streamID: 0)
         await Task.yield()
@@ -558,7 +573,12 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let session = Task { try await coordinator.start() }
-        while !(await input.streamReady) { await Task.yield() }
+        let readyDeadline = ContinuousClock.now + .seconds(2)
+        while !(await input.streamReady), ContinuousClock.now < readyDeadline {
+            await Task.yield()
+        }
+        let streamReady = await input.streamReady
+        XCTAssertTrue(streamReady)
 
         try await coordinator.handle(.speechStarted)
         try await coordinator.handle(
@@ -566,12 +586,16 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         )
         try await coordinator.handle(.speechEnded)
 
-        while await speech.spoken.isEmpty { await Task.yield() }
+        let responseDeadline = ContinuousClock.now + .seconds(2)
+        while await speech.spoken.isEmpty, ContinuousClock.now < responseDeadline {
+            await Task.yield()
+        }
 
         // The committed-response observer intentionally dispatches TTS across
         // an asynchronous boundary. Playback becoming visible in the transport
         // does not mean its authoritative completion event has committed yet.
-        while await runtime.state.conversation.turnState != .idle {
+        while await runtime.state.conversation.turnState != .idle,
+              ContinuousClock.now < responseDeadline {
             await Task.yield()
         }
 
