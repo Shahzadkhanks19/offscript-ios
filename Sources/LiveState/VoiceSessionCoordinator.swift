@@ -18,6 +18,7 @@ public actor VoiceSessionCoordinator {
     private var automaticSpeechFailures: [UUID: String] = [:]
     private var automaticSpeechTasks: [UUID: Task<Void, Never>] = [:]
     private var nextAutomaticSpeechAdmission: UInt64 = 0
+    private var voiceSessionGeneration: UInt64 = 0
 
     public init(
         input: any VoiceInputService,
@@ -36,6 +37,8 @@ public actor VoiceSessionCoordinator {
     public func start() async throws {
         guard !isRunning else { return }
         isRunning = true
+        voiceSessionGeneration &+= 1
+        let sessionGeneration = voiceSessionGeneration
         activityGate.reset()
         bridge.reset()
         // Automatic speech bookkeeping belongs to one capture session. Runtime
@@ -52,7 +55,7 @@ public actor VoiceSessionCoordinator {
             committedResponseConsumer = Task { [weak self] in
                 for await (recordID, text) in stream {
                     guard let self else { return }
-                    await self.enqueueCommittedCounterpartResponse(text, recordID: recordID)
+                    await self.enqueueCommittedCounterpartResponse(text, recordID: recordID, sessionGeneration: sessionGeneration)
                 }
             }
             runtimeObserverID = await runtime.observe { record, _ in
@@ -167,8 +170,8 @@ public actor VoiceSessionCoordinator {
     /// wait for long-lived TTS transport. Playback itself is independently
     /// replaceable: a newer committed response can enter the coordinator and
     /// supersede the currently active playback by SpeechPlaybackID.
-    private func enqueueCommittedCounterpartResponse(_ text: String, recordID: UUID) {
-        guard isRunning else { return }
+    private func enqueueCommittedCounterpartResponse(_ text: String, recordID: UUID, sessionGeneration: UInt64) {
+        guard isRunning, sessionGeneration == voiceSessionGeneration else { return }
         guard handledCounterpartResponseRecords.insert(recordID).inserted else { return }
 
         nextAutomaticSpeechAdmission &+= 1
@@ -178,15 +181,16 @@ public actor VoiceSessionCoordinator {
             await self.speakCommittedCounterpartResponse(
                 text,
                 recordID: recordID,
-                admission: admission
+                admission: admission,
+                sessionGeneration: sessionGeneration
             )
         }
         automaticSpeechTasks[recordID] = task
     }
 
-    private func speakCommittedCounterpartResponse(_ text: String, recordID: UUID, admission: UInt64) async {
+    private func speakCommittedCounterpartResponse(_ text: String, recordID: UUID, admission: UInt64, sessionGeneration: UInt64) async {
         defer { automaticSpeechTasks[recordID] = nil }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, sessionGeneration == voiceSessionGeneration else { return }
         // Admission is allocated synchronously by the ordered runtime consumer.
         // Reject stale tasks that only reach the actor after a newer committed
         // response has already been admitted; they must never steal playback.
