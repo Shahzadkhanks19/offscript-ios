@@ -876,7 +876,12 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         )
 
         let firstSession = Task { try await coordinator.start() }
-        while await input.streamCount < 1 { await Task.yield() }
+        let firstDeadline = ContinuousClock.now + .seconds(2)
+        while await input.streamCount < 1, ContinuousClock.now < firstDeadline {
+            await Task.yield()
+        }
+        let firstStreamCount = await input.streamCount
+        XCTAssertEqual(firstStreamCount, 1)
 
         let recordStream = AsyncStream<UUID> { continuation in
             Task {
@@ -900,7 +905,9 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
             return
         }
 
-        while await coordinator.automaticSpeechFailure(for: recordID) == nil {
+        let failureDeadline = ContinuousClock.now + .seconds(2)
+        while await coordinator.automaticSpeechFailure(for: recordID) == nil,
+              ContinuousClock.now < failureDeadline {
             await Task.yield()
         }
         let firstSessionFailure = await coordinator.automaticSpeechFailure(for: recordID)
@@ -911,7 +918,12 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         try await firstSession.value
 
         let secondSession = Task { try await coordinator.start() }
-        while await input.streamCount < 2 { await Task.yield() }
+        let secondDeadline = ContinuousClock.now + .seconds(2)
+        while await input.streamCount < 2, ContinuousClock.now < secondDeadline {
+            await Task.yield()
+        }
+        let secondStreamCount = await input.streamCount
+        XCTAssertEqual(secondStreamCount, 2)
 
         let restartedSessionFailure = await coordinator.automaticSpeechFailure(for: recordID)
         XCTAssertNil(restartedSessionFailure)
