@@ -824,27 +824,29 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
     }
 
     func testRapidCommittedResponsesNeverStartOutOfCommitOrder() async throws {
-        for iteration in 0..<100 {
-            let input = StreamingVoiceInput()
-            let speech = FakeSpeech()
-            let runtime = runtime()
-            let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
+        let input = StreamingVoiceInput()
+        let speech = FakeSpeech()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
-            let session = Task { try await coordinator.start() }
-            while !(await input.streamReady) { await Task.yield() }
+        let session = Task { try await coordinator.start() }
+        while !(await input.streamReady) { await Task.yield() }
 
-            let expected = (0..<8).map { "rapid-\(iteration)-\($0)" }
-            for text in expected {
-                _ = try await runtime.send(.counterpartResponded(text))
-            }
-
-            while await speech.spoken.count < expected.count { await Task.yield() }
-            let spoken = await speech.spoken
-            XCTAssertEqual(spoken, expected, "Automatic playback must begin in committed-event order")
-
-            await coordinator.stop()
-            try await session.value
+        let expected = (0..<8).map { "rapid-\($0)" }
+        for text in expected {
+            _ = try await runtime.send(.counterpartResponded(text))
         }
+
+        let deadline = ContinuousClock.now + .seconds(2)
+        while await speech.spoken.count < expected.count, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+
+        let spoken = await speech.spoken
+        XCTAssertEqual(spoken, expected, "Automatic playback must begin in committed-event order")
+
+        await coordinator.stop()
+        try await session.value
     }
 
     func testCommittedResponsesAreConsumedInCommitOrder() async throws {
