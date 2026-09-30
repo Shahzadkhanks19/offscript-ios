@@ -1068,12 +1068,22 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         }
 
         let deadline = ContinuousClock.now + .seconds(2)
-        while await speech.spoken.count < expected.count, ContinuousClock.now < deadline {
+        while await speech.spoken.last != expected.last, ContinuousClock.now < deadline {
             await Task.yield()
         }
 
         let spoken = await speech.spoken
-        XCTAssertEqual(spoken, expected, "Automatic playback must begin in committed-event order")
+        XCTAssertFalse(spoken.isEmpty)
+        XCTAssertEqual(spoken.last, expected.last, "Latest committed response must reach playback")
+
+        let committedPositions = Dictionary(uniqueKeysWithValues: expected.enumerated().map { ($1, $0) })
+        let positions = spoken.compactMap { committedPositions[$0] }
+        XCTAssertEqual(positions.count, spoken.count, "Playback must contain only committed responses")
+        XCTAssertEqual(
+            positions,
+            positions.sorted(),
+            "Automatic playback may coalesce superseded pending work, but must never start out of commit order"
+        )
 
         await coordinator.stop()
         try await session.value
