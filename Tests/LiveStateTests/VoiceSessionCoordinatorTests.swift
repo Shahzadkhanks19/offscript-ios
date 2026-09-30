@@ -467,10 +467,16 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         await input.yield(.transcript(.init(text: "current", isFinal: true)), streamID: 1)
         await input.yield(.activity(.speechEnded), streamID: 1)
 
-        while await encounterRuntime.state.user.totalTurns < 1 { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while await encounterRuntime.state.user.totalTurns < 1, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
         state = await encounterRuntime.state
         XCTAssertEqual(state.user.totalTurns, 1)
-        XCTAssertEqual(state.conversation.turns.last?.text, "current")
+        XCTAssertEqual(
+            state.conversation.turns.last(where: { $0.speaker == .user })?.text,
+            "current"
+        )
 
         await input.finish(streamID: 0)
         try await first.value
