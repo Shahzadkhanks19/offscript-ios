@@ -16,6 +16,7 @@ public actor VoiceSessionCoordinator {
     private var committedResponseConsumer: Task<Void, Never>?
     private var handledCounterpartResponseRecords: Set<UUID> = []
     private var automaticSpeechFailures: [UUID: String] = [:]
+    private var automaticSpeechTasks: [UUID: Task<Void, Never>] = [:]
 
     public init(
         input: any VoiceInputService,
@@ -42,6 +43,7 @@ public actor VoiceSessionCoordinator {
         // encounter history.
         handledCounterpartResponseRecords.removeAll(keepingCapacity: true)
         automaticSpeechFailures.removeAll(keepingCapacity: true)
+        automaticSpeechTasks.removeAll(keepingCapacity: true)
         if runtimeObserverID == nil {
             let (stream, continuation) = AsyncStream<(UUID, String)>.makeStream()
             committedResponseContinuation = continuation
@@ -109,6 +111,10 @@ public actor VoiceSessionCoordinator {
         activityGate.reset()
         bridge.reset()
         await detachRuntimeObserver()
+        for task in automaticSpeechTasks.values {
+            task.cancel()
+        }
+        automaticSpeechTasks.removeAll(keepingCapacity: true)
 
         // Stopping is deliberately idempotent at the coordinator boundary:
         // adapters must tolerate stop even when capture has not started.
@@ -163,12 +169,15 @@ public actor VoiceSessionCoordinator {
         guard isRunning else { return }
         guard handledCounterpartResponseRecords.insert(recordID).inserted else { return }
 
-        Task { [weak self] in
+        let task = Task { [weak self] in
             await self?.speakCommittedCounterpartResponse(text, recordID: recordID)
         }
+        automaticSpeechTasks[recordID] = task
     }
 
     private func speakCommittedCounterpartResponse(_ text: String, recordID: UUID) async {
+        defer { automaticSpeechTasks[recordID] = nil }
+        guard !Task.isCancelled else { return }
         do {
             let generation = try await performCounterpartSpeech(text)
             guard generation == speechGeneration else { return }
