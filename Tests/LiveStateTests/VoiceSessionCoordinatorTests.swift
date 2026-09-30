@@ -983,8 +983,13 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         _ = try await runtime.send(.counterpartResponded("First committed response"))
         _ = try await runtime.send(.counterpartResponded("Newer committed response"))
 
-        while await speech.spoken.count < 2 { await Task.yield() }
-        while await runtime.state.conversation.turnState != .idle { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while await speech.spoken.count < 2, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        while await runtime.state.conversation.turnState != .idle, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
 
         let spoken = await speech.spoken
         let state = await runtime.state
