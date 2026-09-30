@@ -613,6 +613,30 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         XCTAssertTrue(spoken.isEmpty)
     }
 
+    func testNaturalCaptureCompletionStopsActiveAutomaticPlayback() async throws {
+        let input = StreamingVoiceInput()
+        let speech = ControlledSpeech()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
+
+        let session = Task { try await coordinator.start() }
+        while !(await input.streamReady) { await Task.yield() }
+
+        _ = try await runtime.send(.counterpartResponded("Still speaking"))
+        let deadline = ContinuousClock.now + .seconds(2)
+        while await speech.startedPlaybackIDs.isEmpty, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        let started = await speech.startedPlaybackIDs
+        XCTAssertEqual(started.count, 1)
+
+        await input.finish()
+        try await session.value
+
+        let stops = await speech.stopPlaybackIDs
+        XCTAssertEqual(stops.last, started.first)
+    }
+
     func testFailedCaptureDetachesRuntimeSpeechObserver() async {
         let input = StreamingVoiceInput()
         let speech = FakeSpeech()
