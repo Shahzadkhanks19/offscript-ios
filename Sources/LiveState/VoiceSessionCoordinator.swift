@@ -17,6 +17,7 @@ public actor VoiceSessionCoordinator {
     private var handledCounterpartResponseRecords: Set<UUID> = []
     private var automaticSpeechFailures: [UUID: String] = [:]
     private var automaticSpeechTasks: [UUID: Task<Void, Never>] = [:]
+    private var nextAutomaticSpeechAdmission: UInt64 = 0
 
     public init(
         input: any VoiceInputService,
@@ -44,6 +45,7 @@ public actor VoiceSessionCoordinator {
         handledCounterpartResponseRecords.removeAll(keepingCapacity: true)
         automaticSpeechFailures.removeAll(keepingCapacity: true)
         automaticSpeechTasks.removeAll(keepingCapacity: true)
+        nextAutomaticSpeechAdmission = 0
         if runtimeObserverID == nil {
             let (stream, continuation) = AsyncStream<(UUID, String)>.makeStream()
             committedResponseContinuation = continuation
@@ -169,16 +171,26 @@ public actor VoiceSessionCoordinator {
         guard isRunning else { return }
         guard handledCounterpartResponseRecords.insert(recordID).inserted else { return }
 
+        nextAutomaticSpeechAdmission &+= 1
+        let admission = nextAutomaticSpeechAdmission
         let task = Task<Void, Never> { [weak self] in
             guard !Task.isCancelled, let self else { return }
-            await self.speakCommittedCounterpartResponse(text, recordID: recordID)
+            await self.speakCommittedCounterpartResponse(
+                text,
+                recordID: recordID,
+                admission: admission
+            )
         }
         automaticSpeechTasks[recordID] = task
     }
 
-    private func speakCommittedCounterpartResponse(_ text: String, recordID: UUID) async {
+    private func speakCommittedCounterpartResponse(_ text: String, recordID: UUID, admission: UInt64) async {
         defer { automaticSpeechTasks[recordID] = nil }
         guard !Task.isCancelled else { return }
+        // Admission is allocated synchronously by the ordered runtime consumer.
+        // Reject stale tasks that only reach the actor after a newer committed
+        // response has already been admitted; they must never steal playback.
+        guard admission == nextAutomaticSpeechAdmission else { return }
         do {
             let generation = try await performCounterpartSpeech(text)
             guard generation == speechGeneration else { return }
