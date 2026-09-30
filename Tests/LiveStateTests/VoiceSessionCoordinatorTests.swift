@@ -741,14 +741,30 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let session = Task { try await coordinator.start() }
-        while !(await input.streamReady) { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !(await input.streamReady), ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        let streamReady = await input.streamReady
+        XCTAssertTrue(streamReady)
 
         _ = try await runtime.send(.counterpartResponded("First automatic response"))
-        while !(await speech.hasStarted(1)) { await Task.yield() }
+        while !(await speech.hasStarted(1)), ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        let firstStarted = await speech.hasStarted(1)
+        XCTAssertTrue(firstStarted)
 
         _ = try await runtime.send(.counterpartResponded("Replacement automatic response"))
-        while !(await speech.hasStarted(2)) { await Task.yield() }
-        while await runtime.state.conversation.turnState != .idle { await Task.yield() }
+        while !(await speech.hasStarted(2)), ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        let secondStarted = await speech.hasStarted(2)
+        XCTAssertTrue(secondStarted)
+        while await runtime.state.conversation.turnState != .idle,
+              ContinuousClock.now < deadline {
+            await Task.yield()
+        }
 
         let spoken = await speech.spoken
         let stopped = await speech.stoppedPlaybackIDs
@@ -767,10 +783,19 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let session = Task { try await coordinator.start() }
-        while !(await input.streamReady) { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !(await input.streamReady), ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        let streamReady = await input.streamReady
+        XCTAssertTrue(streamReady)
 
         _ = try await runtime.send(.counterpartResponded("Active automatic response"))
-        while !(await speech.hasStarted(1)) { await Task.yield() }
+        while !(await speech.hasStarted(1)), ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        let playbackStarted = await speech.hasStarted(1)
+        XCTAssertTrue(playbackStarted)
 
         let activePlaybackID = await speech.spoken.first!.1
         await coordinator.stop()
