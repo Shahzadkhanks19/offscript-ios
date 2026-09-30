@@ -18,7 +18,6 @@ public actor VoiceSessionCoordinator {
     private var automaticSpeechFailures: [UUID: String] = [:]
     private var automaticSpeechTasks: [UUID: Task<Void, Never>] = [:]
     private var nextAutomaticSpeechAdmission: UInt64 = 0
-    private var automaticSpeechAdmissionTurn: UInt64 = 1
     private var voiceSessionGeneration: UInt64 = 0
 
     public init(
@@ -50,7 +49,6 @@ public actor VoiceSessionCoordinator {
         automaticSpeechFailures.removeAll(keepingCapacity: true)
         automaticSpeechTasks.removeAll(keepingCapacity: true)
         nextAutomaticSpeechAdmission = 0
-        automaticSpeechAdmissionTurn = 1
         if runtimeObserverID == nil {
             let (stream, continuation) = AsyncStream<(UUID, String)>.makeStream()
             committedResponseContinuation = continuation
@@ -192,14 +190,10 @@ public actor VoiceSessionCoordinator {
     private func speakCommittedCounterpartResponse(_ text: String, recordID: UUID, admission: UInt64, sessionGeneration: UInt64) async {
         defer { automaticSpeechTasks[recordID] = nil }
         guard !Task.isCancelled, sessionGeneration == voiceSessionGeneration else { return }
-        // Tasks may be scheduled in any order even though admissions are
-        // allocated by the ordered runtime consumer. Wait only for admission
-        // ownership here; never wait for the predecessor's TTS lifetime.
-        while admission != automaticSpeechAdmissionTurn {
-            guard !Task.isCancelled, sessionGeneration == voiceSessionGeneration else { return }
-            await Task.yield()
-        }
-        automaticSpeechAdmissionTurn &+= 1
+        // A newer admission supersedes work that has not started yet. Never
+        // wait here: waiting inside the actor can starve cancellation/teardown
+        // and can turn scheduler reordering into a permanent admission gap.
+        guard admission == nextAutomaticSpeechAdmission else { return }
         do {
             let generation = try await performCounterpartSpeech(text)
             guard generation == speechGeneration else { return }
