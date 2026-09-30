@@ -940,7 +940,12 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let session = Task { try await coordinator.start() }
-        while !(await input.streamReady) { await Task.yield() }
+        let readyDeadline = ContinuousClock.now + .seconds(2)
+        while !(await input.streamReady), ContinuousClock.now < readyDeadline {
+            await Task.yield()
+        }
+        let streamReady = await input.streamReady
+        XCTAssertTrue(streamReady)
 
         let recordStream = AsyncStream<UUID> { continuation in
             Task {
@@ -962,7 +967,12 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
             try await session.value
             return
         }
-        while await speech.spoken.count < 1 { await Task.yield() }
+        let firstSpeechDeadline = ContinuousClock.now + .seconds(2)
+        while await speech.spoken.count < 1, ContinuousClock.now < firstSpeechDeadline {
+            await Task.yield()
+        }
+        let firstSpokenCount = await speech.spoken.count
+        XCTAssertEqual(firstSpokenCount, 1)
 
         _ = try await runtime.send(.counterpartResponded("Replacement automatic response"))
         guard await recordIterator.next() != nil else {
@@ -971,7 +981,12 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
             try await session.value
             return
         }
-        while await speech.spoken.count < 2 { await Task.yield() }
+        let replacementSpeechDeadline = ContinuousClock.now + .seconds(2)
+        while await speech.spoken.count < 2, ContinuousClock.now < replacementSpeechDeadline {
+            await Task.yield()
+        }
+        let replacementSpokenCount = await speech.spoken.count
+        XCTAssertEqual(replacementSpokenCount, 2)
 
         let firstFailure = await coordinator.automaticSpeechFailure(for: firstRecordID)
         XCTAssertNil(firstFailure)
