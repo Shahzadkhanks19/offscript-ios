@@ -430,7 +430,8 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         while !(await input.streamReady), ContinuousClock.now < deadline {
             await Task.yield()
         }
-        XCTAssertTrue(await input.streamReady)
+        let streamReady = await input.streamReady
+        XCTAssertTrue(streamReady)
 
         await coordinator.stop()
         try await session.value
