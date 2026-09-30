@@ -1087,7 +1087,12 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let session = Task { try await coordinator.start() }
-        while !(await input.streamReady) { await Task.yield() }
+        let readyDeadline = ContinuousClock.now + .seconds(2)
+        while !(await input.streamReady), ContinuousClock.now < readyDeadline {
+            await Task.yield()
+        }
+        let streamReady = await input.streamReady
+        XCTAssertTrue(streamReady)
 
         let expected = (0..<8).map { "rapid-\($0)" }
         for text in expected {
@@ -1123,7 +1128,12 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let session = Task { try await coordinator.start() }
-        while !(await input.streamReady) { await Task.yield() }
+        let readyDeadline = ContinuousClock.now + .seconds(2)
+        while !(await input.streamReady), ContinuousClock.now < readyDeadline {
+            await Task.yield()
+        }
+        let streamReady = await input.streamReady
+        XCTAssertTrue(streamReady)
 
         _ = try await runtime.send(.counterpartResponded("First committed response"))
         _ = try await runtime.send(.counterpartResponded("Newer committed response"))
