@@ -823,6 +823,51 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         try await session.value
     }
 
+    func testOldSessionAutomaticFailureCannotLeakIntoRestartedSession() async throws {
+        let input = RestartableVoiceInput()
+        let speech = SupersededFailingSpeech()
+        let runtime = runtime()
+        let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
+
+        let firstSession = Task { try await coordinator.start() }
+        while await input.streamCount < 1 { await Task.yield() }
+
+        let records = AsyncStream<UUID> { continuation in
+            Task {
+                let observerID = await runtime.observe { record, _ in
+                    guard case .counterpartResponded = record.event else { return }
+                    continuation.yield(record.id)
+                }
+                continuation.onTermination = { _ in
+                    Task { await runtime.removeObserver(observerID) }
+                }
+            }
+        }
+        var iterator = records.makeAsyncIterator()
+
+        _ = try await runtime.send(.counterpartResponded("Old session response"))
+        guard let oldRecordID = await iterator.next() else {
+            XCTFail("Expected committed response record")
+            return
+        }
+        while await speech.spoken.count < 1 { await Task.yield() }
+
+        await coordinator.stop()
+        await input.finish(streamID: 0)
+        try await firstSession.value
+
+        let secondSession = Task { try await coordinator.start() }
+        while await input.streamCount < 2 { await Task.yield() }
+
+        for _ in 0..<20 { await Task.yield() }
+        let staleFailure = await coordinator.automaticSpeechFailure(for: oldRecordID)
+        XCTAssertNil(staleFailure)
+
+        await coordinator.stop()
+        await input.finish(streamID: 1)
+        try await secondSession.value
+    }
+
     func testRapidCommittedResponsesNeverStartOutOfCommitOrder() async throws {
         let input = StreamingVoiceInput()
         let speech = FakeSpeech()
