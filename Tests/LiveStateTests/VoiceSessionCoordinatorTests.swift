@@ -638,7 +638,12 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let session = Task { try await coordinator.start() }
-        while !(await input.streamReady) { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !(await input.streamReady), ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        let streamReady = await input.streamReady
+        XCTAssertTrue(streamReady)
         await coordinator.stop()
         try await session.value
 
@@ -667,7 +672,12 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let session = Task { try await coordinator.start() }
-        while !(await input.streamReady) { await Task.yield() }
+        let readyDeadline = ContinuousClock.now + .seconds(2)
+        while !(await input.streamReady), ContinuousClock.now < readyDeadline {
+            await Task.yield()
+        }
+        let streamReady = await input.streamReady
+        XCTAssertTrue(streamReady)
 
         _ = try await runtime.send(.counterpartResponded("Still speaking"))
         let deadline = ContinuousClock.now + .seconds(2)
@@ -701,7 +711,12 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let session = Task { try await coordinator.start() }
-        while !(await input.streamReady) { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !(await input.streamReady), ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        let streamReady = await input.streamReady
+        XCTAssertTrue(streamReady)
         await input.fail(VoiceStreamTestError.failed)
 
         do {
