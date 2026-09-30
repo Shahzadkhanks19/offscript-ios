@@ -17,7 +17,6 @@ public actor VoiceSessionCoordinator {
     private var handledCounterpartResponseRecords: Set<UUID> = []
     private var automaticSpeechFailures: [UUID: String] = [:]
     private var automaticSpeechTasks: [UUID: Task<Void, Never>] = [:]
-    private var automaticSpeechTail: Task<Void, Never>?
 
     public init(
         input: any VoiceInputService,
@@ -45,7 +44,6 @@ public actor VoiceSessionCoordinator {
         handledCounterpartResponseRecords.removeAll(keepingCapacity: true)
         automaticSpeechFailures.removeAll(keepingCapacity: true)
         automaticSpeechTasks.removeAll(keepingCapacity: true)
-        automaticSpeechTail = nil
         if runtimeObserverID == nil {
             let (stream, continuation) = AsyncStream<(UUID, String)>.makeStream()
             committedResponseContinuation = continuation
@@ -116,8 +114,6 @@ public actor VoiceSessionCoordinator {
         for task in automaticSpeechTasks.values {
             task.cancel()
         }
-        automaticSpeechTail?.cancel()
-        automaticSpeechTail = nil
         automaticSpeechTasks.removeAll(keepingCapacity: true)
 
         // Stopping is deliberately idempotent at the coordinator boundary:
@@ -173,19 +169,11 @@ public actor VoiceSessionCoordinator {
         guard isRunning else { return }
         guard handledCounterpartResponseRecords.insert(recordID).inserted else { return }
 
-        let predecessor = automaticSpeechTail
         let task = Task<Void, Never> { [weak self] in
-            // Serialize only playback *start* ordering. The predecessor may
-            // continue transport work, but this task cannot race ahead of its
-            // committed predecessor before entering the coordinator.
-            if let predecessor {
-                await predecessor.value
-            }
             guard !Task.isCancelled, let self else { return }
             await self.speakCommittedCounterpartResponse(text, recordID: recordID)
         }
         automaticSpeechTasks[recordID] = task
-        automaticSpeechTail = task
     }
 
     private func speakCommittedCounterpartResponse(_ text: String, recordID: UUID) async {
