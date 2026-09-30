@@ -18,6 +18,7 @@ public actor VoiceSessionCoordinator {
     private var automaticSpeechFailures: [UUID: String] = [:]
     private var automaticSpeechTasks: [UUID: Task<Void, Never>] = [:]
     private var nextAutomaticSpeechAdmission: UInt64 = 0
+    private var automaticSpeechAdmissionTurn: UInt64 = 1
     private var voiceSessionGeneration: UInt64 = 0
 
     public init(
@@ -49,6 +50,7 @@ public actor VoiceSessionCoordinator {
         automaticSpeechFailures.removeAll(keepingCapacity: true)
         automaticSpeechTasks.removeAll(keepingCapacity: true)
         nextAutomaticSpeechAdmission = 0
+        automaticSpeechAdmissionTurn = 1
         if runtimeObserverID == nil {
             let (stream, continuation) = AsyncStream<(UUID, String)>.makeStream()
             committedResponseContinuation = continuation
@@ -190,10 +192,14 @@ public actor VoiceSessionCoordinator {
     private func speakCommittedCounterpartResponse(_ text: String, recordID: UUID, admission: UInt64, sessionGeneration: UInt64) async {
         defer { automaticSpeechTasks[recordID] = nil }
         guard !Task.isCancelled, sessionGeneration == voiceSessionGeneration else { return }
-        // Admission is allocated synchronously by the ordered runtime consumer.
-        // Reject stale tasks that only reach the actor after a newer committed
-        // response has already been admitted; they must never steal playback.
-        guard admission == nextAutomaticSpeechAdmission else { return }
+        // Tasks may be scheduled in any order even though admissions are
+        // allocated by the ordered runtime consumer. Wait only for admission
+        // ownership here; never wait for the predecessor's TTS lifetime.
+        while admission != automaticSpeechAdmissionTurn {
+            guard !Task.isCancelled, sessionGeneration == voiceSessionGeneration else { return }
+            await Task.yield()
+        }
+        automaticSpeechAdmissionTurn &+= 1
         do {
             let generation = try await performCounterpartSpeech(text)
             guard generation == speechGeneration else { return }
