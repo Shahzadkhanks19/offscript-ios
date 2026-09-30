@@ -861,7 +861,8 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         while await input.streamCount < 1, ContinuousClock.now < firstDeadline {
             await Task.yield()
         }
-        XCTAssertEqual(await input.streamCount, 1)
+        let firstStreamCount = await input.streamCount
+        XCTAssertEqual(firstStreamCount, 1)
 
         // Register the observer synchronously before committing the response.
         // The previous AsyncStream helper installed its observer from an
@@ -910,7 +911,8 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         while await speech.spoken.count < 1, ContinuousClock.now < speechDeadline {
             await Task.yield()
         }
-        XCTAssertEqual(await speech.spoken.count, 1)
+        let spokenCount = await speech.spoken.count
+        XCTAssertEqual(spokenCount, 1)
 
         await coordinator.stop()
         await input.finish(streamID: 0)
@@ -921,7 +923,8 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         while await input.streamCount < 2, ContinuousClock.now < secondDeadline {
             await Task.yield()
         }
-        XCTAssertEqual(await input.streamCount, 2)
+        let secondStreamCount = await input.streamCount
+        XCTAssertEqual(secondStreamCount, 2)
 
         for _ in 0..<20 { await Task.yield() }
         let staleFailure = await coordinator.automaticSpeechFailure(for: oldRecordID)
