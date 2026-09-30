@@ -320,9 +320,13 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
             try await coordinator.speakCounterpart("Long counterpart response")
         }
 
-        while await runtime.state.conversation.turnState != .counterpartSpeaking {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while await runtime.state.conversation.turnState != .counterpartSpeaking,
+              ContinuousClock.now < deadline {
             await Task.yield()
         }
+        let speakingState = await runtime.state.conversation.turnState
+        XCTAssertEqual(speakingState, .counterpartSpeaking)
 
         try await coordinator.handle(.interruptedCounterpart)
         try await playback.value
@@ -347,9 +351,13 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
             try await coordinator.speakCounterpart("First response")
         }
 
-        while await runtime.state.conversation.turnState != .counterpartSpeaking {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while await runtime.state.conversation.turnState != .counterpartSpeaking,
+              ContinuousClock.now < deadline {
             await Task.yield()
         }
+        let speakingState = await runtime.state.conversation.turnState
+        XCTAssertEqual(speakingState, .counterpartSpeaking)
 
         try await coordinator.speakCounterpart("Replacement response")
         try await first.value
@@ -392,9 +400,13 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
             try await coordinator.speakCounterpart("Old response")
         }
 
-        while await runtime.state.conversation.turnState != .counterpartSpeaking {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while await runtime.state.conversation.turnState != .counterpartSpeaking,
+              ContinuousClock.now < deadline {
             await Task.yield()
         }
+        let speakingState = await runtime.state.conversation.turnState
+        XCTAssertEqual(speakingState, .counterpartSpeaking)
 
         try await coordinator.speakCounterpart("Replacement response")
 
@@ -414,7 +426,11 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: FakeSpeech(), runtime: runtime())
 
         let session = Task { try await coordinator.start() }
-        while !(await input.streamReady) { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !(await input.streamReady), ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        XCTAssertTrue(await input.streamReady)
 
         await coordinator.stop()
         try await session.value
