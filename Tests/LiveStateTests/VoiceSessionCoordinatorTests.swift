@@ -857,34 +857,71 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let coordinator = VoiceSessionCoordinator(input: input, speech: speech, runtime: runtime)
 
         let firstSession = Task { try await coordinator.start() }
-        while await input.streamCount < 1 { await Task.yield() }
+        let firstDeadline = ContinuousClock.now + .seconds(2)
+        while await input.streamCount < 1, ContinuousClock.now < firstDeadline {
+            await Task.yield()
+        }
+        XCTAssertEqual(await input.streamCount, 1)
 
-        let records = AsyncStream<UUID> { continuation in
-            Task {
-                let observerID = await runtime.observe { record, _ in
-                    guard case .counterpartResponded = record.event else { return }
-                    continuation.yield(record.id)
-                }
-                continuation.onTermination = { _ in
-                    Task { await runtime.removeObserver(observerID) }
-                }
+        // Register the observer synchronously before committing the response.
+        // The previous AsyncStream helper installed its observer from an
+        // unstructured Task, leaving a race where the commit could happen first
+        // and iterator.next() would then wait forever.
+        final class RecordBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value: UUID?
+
+            func store(_ id: UUID) {
+                lock.lock()
+                value = id
+                lock.unlock()
+            }
+
+            func load() -> UUID? {
+                lock.lock()
+                defer { lock.unlock() }
+                return value
             }
         }
-        var iterator = records.makeAsyncIterator()
+        let recordBox = RecordBox()
+        let observerID = await runtime.observe { record, _ in
+            guard case .counterpartResponded = record.event else { return }
+            recordBox.store(record.id)
+        }
+        defer {
+            Task { await runtime.removeObserver(observerID) }
+        }
 
         _ = try await runtime.send(.counterpartResponded("Old session response"))
-        guard let oldRecordID = await iterator.next() else {
+
+        let recordDeadline = ContinuousClock.now + .seconds(2)
+        while recordBox.load() == nil, ContinuousClock.now < recordDeadline {
+            await Task.yield()
+        }
+        guard let oldRecordID = recordBox.load() else {
             XCTFail("Expected committed response record")
+            await coordinator.stop()
+            await input.finish(streamID: 0)
+            _ = try? await firstSession.value
             return
         }
-        while await speech.spoken.count < 1 { await Task.yield() }
+
+        let speechDeadline = ContinuousClock.now + .seconds(2)
+        while await speech.spoken.count < 1, ContinuousClock.now < speechDeadline {
+            await Task.yield()
+        }
+        XCTAssertEqual(await speech.spoken.count, 1)
 
         await coordinator.stop()
         await input.finish(streamID: 0)
         try await firstSession.value
 
         let secondSession = Task { try await coordinator.start() }
-        while await input.streamCount < 2 { await Task.yield() }
+        let secondDeadline = ContinuousClock.now + .seconds(2)
+        while await input.streamCount < 2, ContinuousClock.now < secondDeadline {
+            await Task.yield()
+        }
+        XCTAssertEqual(await input.streamCount, 2)
 
         for _ in 0..<20 { await Task.yield() }
         let staleFailure = await coordinator.automaticSpeechFailure(for: oldRecordID)
