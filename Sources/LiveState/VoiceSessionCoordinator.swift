@@ -169,8 +169,9 @@ public actor VoiceSessionCoordinator {
         guard isRunning else { return }
         guard handledCounterpartResponseRecords.insert(recordID).inserted else { return }
 
-        let task = Task { [weak self] in
-            await self?.speakCommittedCounterpartResponse(text, recordID: recordID)
+        let task = Task<Void, Never> { [weak self] in
+            guard let self else { return }
+            await self.speakCommittedCounterpartResponse(text, recordID: recordID)
         }
         automaticSpeechTasks[recordID] = task
     }
