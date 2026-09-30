@@ -511,7 +511,10 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         let inputStops = await input.stops
         XCTAssertEqual(state.user.interruptions, 1)
         XCTAssertEqual(state.conversation.turnState, .userSpeaking)
-        XCTAssertEqual(speechStops, 1)
+        // Natural capture completion now uses the same teardown path as an
+        // explicit stop. The interruption stops playback once, and session
+        // teardown performs the idempotent transport stop again.
+        XCTAssertEqual(speechStops, 2)
         XCTAssertEqual(inputStops, 1)
     }
 
