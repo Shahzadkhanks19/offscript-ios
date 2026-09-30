@@ -71,4 +71,54 @@ final class VoiceCaptureSessionTests: XCTestCase {
         let decoded = try JSONDecoder().decode(VoiceCaptureSessionState.self, from: data)
         XCTAssertEqual(decoded, original)
     }
+
+    func testRecoveryPolicyRestartsAfterResumableInterruption() {
+        XCTAssertEqual(
+            VoiceCaptureRecoveryPolicy.action(
+                state: .interrupted,
+                event: .interruptionEnded(shouldResume: true)
+            ),
+            .restartCapture
+        )
+    }
+
+    func testRecoveryPolicyStopsAfterNonResumableInterruption() {
+        XCTAssertEqual(
+            VoiceCaptureRecoveryPolicy.action(
+                state: .interrupted,
+                event: .interruptionEnded(shouldResume: false)
+            ),
+            .stopCapture
+        )
+    }
+
+    func testRecoveryPolicyRestartsForRunningRouteChange() {
+        XCTAssertEqual(
+            VoiceCaptureRecoveryPolicy.action(state: .running, event: .routeChanged),
+            .restartCapture
+        )
+    }
+
+    func testRecoveryPolicyIgnoresRouteChangeWhenNotRunning() {
+        XCTAssertEqual(
+            VoiceCaptureRecoveryPolicy.action(state: .stopped, event: .routeChanged),
+            .none
+        )
+    }
+
+    func testRecoveryPolicyClassifiesTerminalTransportFailures() {
+        XCTAssertEqual(
+            VoiceCaptureRecoveryPolicy.action(state: .idle, event: .permissionDenied),
+            .fail(.permissionDenied)
+        )
+        XCTAssertEqual(
+            VoiceCaptureRecoveryPolicy.action(state: .running, event: .streamFailed),
+            .fail(.streamFailed)
+        )
+        XCTAssertEqual(
+            VoiceCaptureRecoveryPolicy.action(state: .recovering, event: .recoveryFailed),
+            .fail(.recoveryFailed)
+        )
+    }
+
 }
