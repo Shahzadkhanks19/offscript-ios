@@ -624,17 +624,27 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
 
         _ = try await runtime.send(.counterpartResponded("Still speaking"))
         let deadline = ContinuousClock.now + .seconds(2)
-        while await speech.startedPlaybackIDs.isEmpty, ContinuousClock.now < deadline {
+        while !(await speech.hasStarted(1)), ContinuousClock.now < deadline {
             await Task.yield()
         }
-        let started = await speech.startedPlaybackIDs
-        XCTAssertEqual(started.count, 1)
 
-        await input.finish()
+        let started = await speech.spoken
+        XCTAssertEqual(started.count, 1)
+        guard let startedPlaybackID = started.first?.1 else {
+            XCTFail("Expected automatic playback to start")
+            await coordinator.stop()
+            _ = try? await session.value
+            return
+        }
+
+        // Simulate capture ending independently of coordinator teardown.
+        // StreamingVoiceInput.stop() also finishes the stream, so use it as the
+        // finite-stream completion trigger available on this test double.
+        await input.stop()
         try await session.value
 
-        let stops = await speech.stopPlaybackIDs
-        XCTAssertEqual(stops.last, started.first)
+        let stops = await speech.stoppedPlaybackIDs
+        XCTAssertEqual(stops.last, startedPlaybackID)
     }
 
     func testFailedCaptureDetachesRuntimeSpeechObserver() async {
