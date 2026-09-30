@@ -84,3 +84,40 @@ public enum VoiceCaptureSessionReducer {
         }
     }
 }
+
+
+/// Recovery decision kept separate from platform mechanics so adapters can map
+/// AVAudioSession callbacks into deterministic behavior before touching
+/// hardware again.
+public enum VoiceCaptureRecoveryAction: Equatable, Sendable {
+    case none
+    case restartCapture
+    case stopCapture
+    case fail(VoiceCaptureFailure)
+}
+
+public enum VoiceCaptureRecoveryPolicy {
+    public static func action(
+        state: VoiceCaptureSessionState,
+        event: VoiceCaptureSessionEvent
+    ) -> VoiceCaptureRecoveryAction {
+        switch (state, event) {
+        case (.interrupted, .interruptionEnded(shouldResume: true)):
+            return .restartCapture
+        case (.interrupted, .interruptionEnded(shouldResume: false)):
+            return .stopCapture
+        case (.running, .routeChanged):
+            return .restartCapture
+        case (_, .permissionDenied):
+            return .fail(.permissionDenied)
+        case (_, .permissionRestricted):
+            return .fail(.permissionRestricted)
+        case (_, .streamFailed):
+            return .fail(.streamFailed)
+        case (.recovering, .recoveryFailed):
+            return .fail(.recoveryFailed)
+        default:
+            return .none
+        }
+    }
+}
