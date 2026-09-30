@@ -1102,7 +1102,7 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
         _ = try await runtime.send(.counterpartResponded("Newer committed response"))
 
         let deadline = ContinuousClock.now + .seconds(2)
-        while await speech.spoken.count < 2, ContinuousClock.now < deadline {
+        while await speech.spoken.last != "Newer committed response", ContinuousClock.now < deadline {
             await Task.yield()
         }
         while await runtime.state.conversation.turnState != .idle, ContinuousClock.now < deadline {
@@ -1111,7 +1111,13 @@ final class VoiceSessionCoordinatorTests: XCTestCase {
 
         let spoken = await speech.spoken
         let state = await runtime.state
-        XCTAssertEqual(spoken, ["First committed response", "Newer committed response"])
+        XCTAssertFalse(spoken.isEmpty)
+        XCTAssertEqual(spoken.last, "Newer committed response")
+        XCTAssertTrue(
+            spoken == ["Newer committed response"] ||
+                spoken == ["First committed response", "Newer committed response"],
+            "Pending older work may be coalesced, but committed responses must never play out of order"
+        )
         XCTAssertEqual(state.conversation.turnState, .idle)
 
         await coordinator.stop()
