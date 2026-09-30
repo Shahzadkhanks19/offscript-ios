@@ -88,27 +88,26 @@ public actor VoiceSessionCoordinator {
         } catch {
             let ownsRun = generation == runGeneration
             if ownsRun {
-                isRunning = false
-                runGeneration &+= 1
-                await detachRuntimeObserver()
-                await input.stop()
+                await teardownOwnedSession()
             }
             throw error
         }
 
         guard generation == runGeneration else { return }
-        isRunning = false
-        runGeneration &+= 1
-        await detachRuntimeObserver()
-        await input.stop()
+        await teardownOwnedSession()
     }
 
     public func stop() async {
+        await teardownOwnedSession()
+    }
+
+    private func teardownOwnedSession() async {
         let wasRunning = isRunning
         isRunning = false
         if wasRunning {
             runGeneration &+= 1
         }
+        voiceSessionGeneration &+= 1
         speechGeneration &+= 1
         activeSpeechGeneration = nil
         let playbackID = activePlaybackID
@@ -121,7 +120,7 @@ public actor VoiceSessionCoordinator {
         }
         automaticSpeechTasks.removeAll(keepingCapacity: true)
 
-        // Stopping is deliberately idempotent at the coordinator boundary:
+        // Teardown is deliberately idempotent at the coordinator boundary:
         // adapters must tolerate stop even when capture has not started.
         await input.stop()
         await speech.stop(playbackID: playbackID)
