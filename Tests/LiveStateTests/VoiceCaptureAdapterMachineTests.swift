@@ -94,4 +94,81 @@ final class VoiceCaptureAdapterMachineTests: XCTestCase {
 
         XCTAssertEqual(output.events, [.activity(.speechDuration(milliseconds: 300))])
     }
+
+    func testBeginGenerationInvalidatesPreviousCallbackOwnership() {
+        var machine = VoiceCaptureAdapterMachine()
+        let first = machine.beginGeneration()
+        _ = machine.receive(.session(.startRequested), generation: first)
+        _ = machine.receive(.session(.captureStarted), generation: first)
+        let second = machine.beginGeneration()
+
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(machine.state.session, .idle)
+        XCTAssertTrue(
+            machine.receive(
+                .activity(.init(isSpeech: true, elapsedMilliseconds: 100)),
+                generation: first
+            ).events.isEmpty
+        )
+        XCTAssertEqual(machine.state.session, .idle)
+    }
+
+    func testOldTranscriptCannotEnterNewUtteranceWithReusedLocalID() {
+        var machine = VoiceCaptureAdapterMachine()
+        let first = machine.beginGeneration()
+        _ = machine.receive(.session(.startRequested), generation: first)
+        _ = machine.receive(.session(.captureStarted), generation: first)
+        _ = machine.receive(
+            .activity(.init(isSpeech: true, elapsedMilliseconds: 100)),
+            generation: first
+        )
+
+        let second = machine.beginGeneration()
+        _ = machine.receive(.session(.startRequested), generation: second)
+        _ = machine.receive(.session(.captureStarted), generation: second)
+        _ = machine.receive(
+            .activity(.init(isSpeech: true, elapsedMilliseconds: 25)),
+            generation: second
+        )
+
+        let stale = machine.receive(
+            .transcript(text: "old callback", isFinal: true, confidence: nil),
+            generation: first
+        )
+        XCTAssertTrue(stale.events.isEmpty)
+
+        let current = machine.receive(
+            .transcript(text: "current callback", isFinal: false, confidence: nil),
+            generation: second
+        )
+        guard case let .transcript(snapshot)? = current.events.first else {
+            return XCTFail("Expected current generation transcript")
+        }
+        XCTAssertEqual(snapshot.utteranceID, 1)
+        XCTAssertEqual(snapshot.revision, 1)
+        XCTAssertEqual(snapshot.text, "current callback")
+    }
+
+    func testOldSessionFailureCannotPoisonNewGeneration() {
+        var machine = VoiceCaptureAdapterMachine()
+        let first = machine.beginGeneration()
+        let second = machine.beginGeneration()
+        _ = machine.receive(.session(.startRequested), generation: second)
+        _ = machine.receive(.session(.captureStarted), generation: second)
+
+        _ = machine.receive(.session(.streamFailed), generation: first)
+
+        XCTAssertEqual(machine.state.session, .running)
+    }
+
+    func testResetInvalidatesOutstandingGenerationToken() {
+        var machine = VoiceCaptureAdapterMachine()
+        let generation = machine.beginGeneration()
+        machine.reset()
+
+        _ = machine.receive(.session(.streamFailed), generation: generation)
+
+        XCTAssertEqual(machine.state.session, .idle)
+        XCTAssertNotEqual(machine.generation, generation)
+    }
 }
