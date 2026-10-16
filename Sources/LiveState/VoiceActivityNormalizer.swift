@@ -40,6 +40,12 @@ public struct VoiceActivityNormalizer: Equatable, Sendable {
                 return [.speechBegan, .speechDuration(milliseconds: 0)]
             }
 
+            // A non-speech interval inside the same physical utterance is only
+            // a candidate pause. If speech resumes before the platform closes
+            // the utterance, that candidate pause is over and the next silence
+            // must start timing from its own first non-speech sample.
+            silenceStartedAt = nil
+
             guard let speechStartedAt else { return [] }
             return [.speechDuration(milliseconds: sample.elapsedMilliseconds - speechStartedAt)]
         }
