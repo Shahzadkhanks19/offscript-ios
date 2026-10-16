@@ -88,4 +88,44 @@ final class VoiceCaptureAdapterStateTests: XCTestCase {
         XCTAssertNil(state.transcripts.activeUtteranceID)
         XCTAssertNil(state.transcript(text: "stale", isFinal: false))
     }
+
+    func testActivitySamplesAreRejectedUntilCaptureRuns() {
+        var state = VoiceCaptureAdapterState()
+        XCTAssertTrue(state.activitySample(isSpeech: true, elapsedMilliseconds: 100).isEmpty)
+    }
+
+    func testRunningActivitySamplesBecomeRawCaptureEvents() {
+        var state = runningState()
+
+        XCTAssertEqual(
+            state.activitySample(isSpeech: true, elapsedMilliseconds: 100),
+            [.activity(.speechBegan), .activity(.speechDuration(milliseconds: 0))]
+        )
+        XCTAssertEqual(
+            state.activitySample(isSpeech: true, elapsedMilliseconds: 280),
+            [.activity(.speechDuration(milliseconds: 180))]
+        )
+    }
+
+    func testSpeechEndClosesTranscriptAndActivityRunTogether() {
+        var state = runningState()
+        _ = state.speechBegan()
+        _ = state.activitySample(isSpeech: true, elapsedMilliseconds: 100)
+
+        XCTAssertEqual(state.speechEnded(), [.activity(.speechEnded)])
+        XCTAssertNil(state.transcripts.activeUtteranceID)
+        XCTAssertNil(state.transcript(text: "late", isFinal: true))
+    }
+
+    func testRouteChangeResetsActivityClockBeforeRecovery() {
+        var state = runningState()
+        _ = state.activitySample(isSpeech: true, elapsedMilliseconds: 5_000)
+        _ = state.receive(.routeChanged)
+        _ = state.receive(.recoverySucceeded)
+
+        XCTAssertEqual(
+            state.activitySample(isSpeech: true, elapsedMilliseconds: 25),
+            [.activity(.speechBegan), .activity(.speechDuration(milliseconds: 0))]
+        )
+    }
 }
